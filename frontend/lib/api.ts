@@ -19,3 +19,13 @@ export type TaskItem = {
   created_at: string;
   completed_at: string | null;
 };
+
+export type DailySummary = {
+  date: string;
+  events_total: number;
+  tasks_created: number;
+  tasks_in_progress: number;
+  tasks_completed: number;
+  expenses_added: number;
+  cleanings_done: number;
+};
