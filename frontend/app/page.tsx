@@ -10,6 +10,7 @@ import {
   FinanceKind,
   FinanceTransaction,
   CleaningZone,
+  PomodoroSession,
   TaskItem,
   TaskStatus,
   FocusSession
@@ -34,6 +35,7 @@ export default function HomePage() {
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
   const [cleaningZones, setCleaningZones] = useState<CleaningZone[]>([]);
   const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
+  const [pomodoroSessions, setPomodoroSessions] = useState<PomodoroSession[]>([]);
   const [taskFilter, setTaskFilter] = useState<"all" | TaskStatus>("all");
   const [eventType, setEventType] = useState<EventType>("work_started");
   const [payloadText, setPayloadText] = useState('{"note":"manual event"}');
@@ -45,6 +47,9 @@ export default function HomePage() {
   const [zoneName, setZoneName] = useState("");
   const [zoneFrequencyDays, setZoneFrequencyDays] = useState("7");
   const [focusLabel, setFocusLabel] = useState("");
+  const [pomodoroLabel, setPomodoroLabel] = useState("");
+  const [pomodoroWorkMinutes, setPomodoroWorkMinutes] = useState("25");
+  const [pomodoroBreakMinutes, setPomodoroBreakMinutes] = useState("5");
   const [error, setError] = useState<string | null>(null);
 
   const pageClass = "bg-[#b4a181] text-[#efe7d7]";
@@ -111,8 +116,25 @@ export default function HomePage() {
     setFocusSessions(await response.json());
   }
 
+  async function loadPomodoroSessions() {
+    const response = await fetch(`${API_URL}/pomodoro/sessions?limit=10`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Failed to fetch pomodoro sessions");
+    }
+    setPomodoroSessions(await response.json());
+  }
+
   useEffect(() => {
-    Promise.all([loadEvents(), loadTasks(), loadSummary(), loadInsight(), loadTransactions(), loadCleaningZones(), loadFocusSessions()]).catch((err: Error) =>
+    Promise.all([
+      loadEvents(),
+      loadTasks(),
+      loadSummary(),
+      loadInsight(),
+      loadTransactions(),
+      loadCleaningZones(),
+      loadFocusSessions(),
+      loadPomodoroSessions()
+    ]).catch((err: Error) =>
       setError(err.message)
     );
   }, [taskFilter]);
@@ -296,6 +318,55 @@ export default function HomePage() {
       return;
     }
     await Promise.all([loadFocusSessions(), loadEvents()]);
+  }
+
+  async function startPomodoroSession() {
+    setError(null);
+    const work = Number(pomodoroWorkMinutes);
+    const breakMinutes = Number(pomodoroBreakMinutes);
+    if (!Number.isInteger(work) || work < 10) {
+      setError("Work minutes must be an integer >= 10");
+      return;
+    }
+    if (!Number.isInteger(breakMinutes) || breakMinutes < 1) {
+      setError("Break minutes must be an integer >= 1");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/pomodoro/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: pomodoroLabel.trim() || null,
+          work_minutes: work,
+          break_minutes: breakMinutes
+        })
+      });
+      if (!response.ok) {
+        setError("Failed to start pomodoro session");
+        return;
+      }
+      setPomodoroLabel("");
+      await Promise.all([loadPomodoroSessions(), loadEvents()]);
+    } catch {
+      setError("Cannot connect to API. Please check backend server.");
+    }
+  }
+
+  async function completePomodoroSession(sessionId: string) {
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/pomodoro/sessions/${sessionId}/complete`, {
+        method: "POST"
+      });
+      if (!response.ok) {
+        setError("Failed to complete pomodoro session");
+        return;
+      }
+      await Promise.all([loadPomodoroSessions(), loadEvents(), loadSummary(), loadInsight()]);
+    } catch {
+      setError("Cannot connect to API. Please check backend server.");
+    }
   }
 
   const taskCounters = {
@@ -489,6 +560,10 @@ export default function HomePage() {
               <p className="font-medium text-[#f2ead9]">{summary.tasks_completed}</p>
             </article>
             <article className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className={`text-sm ${mutedClass}`}>Pomodoros completed</p>
+              <p className="font-medium text-[#f2ead9]">{summary.pomodoros_completed}</p>
+            </article>
+            <article className="rounded-xl border border-[#313544] bg-[#202331] p-3">
               <p className={`text-sm ${mutedClass}`}>Income total</p>
               <p className="font-medium text-[#f2ead9]">{summary.income_total.toFixed(2)}</p>
             </article>
@@ -508,6 +583,56 @@ export default function HomePage() {
         ) : (
           <p className={`mt-3 ${mutedClass}`}>Loading summary...</p>
         )}
+      </section>
+
+      <section className={`mt-8 rounded-2xl border p-5 ${panelClass}`}>
+        <h2 className="text-xl font-semibold">Pomodoro</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <input
+            className={`rounded-xl border p-2.5 ${inputClass} md:col-span-2`}
+            value={pomodoroLabel}
+            onChange={(e) => setPomodoroLabel(e.target.value)}
+            placeholder="Label (optional): API docs, Refactor..."
+          />
+          <input
+            className={`rounded-xl border p-2.5 ${inputClass}`}
+            value={pomodoroWorkMinutes}
+            onChange={(e) => setPomodoroWorkMinutes(e.target.value)}
+            placeholder="Work min"
+          />
+          <input
+            className={`rounded-xl border p-2.5 ${inputClass}`}
+            value={pomodoroBreakMinutes}
+            onChange={(e) => setPomodoroBreakMinutes(e.target.value)}
+            placeholder="Break min"
+          />
+          <button
+            className="rounded-xl bg-[#f1e8d6] px-4 py-2 text-sm font-semibold text-[#1a1d26] hover:bg-[#e7dbc4] md:col-span-4"
+            onClick={startPomodoroSession}
+            type="button"
+          >
+            Start pomodoro
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {pomodoroSessions.map((session) => (
+            <article key={session.id} className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className="font-medium text-[#f2ead9]">{session.label ?? "Untitled pomodoro"}</p>
+              <p className={`text-sm ${mutedClass}`}>
+                {session.work_minutes}m work / {session.break_minutes}m break - {session.status}
+              </p>
+              {session.status === "running" && (
+                <button
+                  className="mt-2 rounded-lg bg-[#d2bc93] px-3 py-1 text-xs font-semibold text-[#2b2317] hover:bg-[#dec9a4]"
+                  onClick={() => completePomodoroSession(session.id)}
+                  type="button"
+                >
+                  Complete pomodoro
+                </button>
+              )}
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className={`mt-8 rounded-2xl border p-5 ${panelClass}`}>

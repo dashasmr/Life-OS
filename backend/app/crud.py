@@ -3,13 +3,16 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.models import CleaningZone, Event, FinanceTransaction, FocusSession, Task
+from app.database import settings
+from app.models import CleaningZone, Event, FinanceTransaction, FocusSession, PomodoroSession, Task
+from app.services.insights import build_daily_insight
 from app.schemas import (
     CleaningZoneCreate,
     EventCreate,
     FinanceTransactionCreate,
     FinanceKind,
     FocusSessionCreate,
+    PomodoroSessionCreate,
     TaskCreate,
     TaskStatus,
 )
@@ -106,6 +109,7 @@ def get_daily_summary(db: Session, target_date: date) -> dict[str, int | str]:
         "tasks_created": tasks_created,
         "tasks_in_progress": event_count("task_in_progress"),
         "tasks_completed": event_count("task_completed"),
+        "pomodoros_completed": event_count("pomodoro_completed"),
         "income_added": event_count("income_added"),
         "expenses_added": event_count("expense_added"),
         "cleanings_done": event_count("cleaning_done"),
@@ -263,39 +267,50 @@ def get_daily_insight(db: Session, target_date: date) -> dict:
     )
     focus_seconds = int(db.execute(focus_duration_stmt).scalar_one() or 0)
     focus_minutes = max(0, round(focus_seconds / 60))
-
-    tasks_completed = int(summary["tasks_completed"])
-    balance_delta = float(summary["balance_delta"])
-    cleanings_done = int(summary["cleanings_done"])
-
-    if tasks_completed >= 3 and focus_minutes >= 90:
-        headline = "Strong productive day"
-    elif tasks_completed == 0 and focus_minutes < 30:
-        headline = "Light execution day"
-    else:
-        headline = "Steady progress day"
-
-    summary_text = (
-        f"You completed {tasks_completed} tasks, logged {focus_minutes} minutes of focus time, "
-        f"and finished {cleanings_done} cleaning actions. "
-        f"Your financial balance changed by {balance_delta:.2f} today."
+    return build_daily_insight(
+        summary=summary,
+        focus_minutes=focus_minutes,
+        provider=settings.ai_provider,
+        openai_api_key=settings.openai_api_key,
+        openai_model=settings.openai_model,
     )
 
-    recommendations: list[str] = []
-    if focus_minutes < 60:
-        recommendations.append("Schedule one 25-minute focus block for your top task tomorrow.")
-    if tasks_completed == 0:
-        recommendations.append("Start the day by finishing one small task to build momentum.")
-    if cleanings_done == 0:
-        recommendations.append("Mark one cleaning zone as done to keep home maintenance consistent.")
-    if balance_delta < 0:
-        recommendations.append("Review expenses and set a spending limit for one category tomorrow.")
-    if not recommendations:
-        recommendations.append("Keep the same routine and repeat your current workflow tomorrow.")
 
-    return {
-        "date": str(summary["date"]),
-        "headline": headline,
-        "summary": summary_text,
-        "recommendations": recommendations,
-    }
+def start_pomodoro_session(db: Session, data: PomodoroSessionCreate) -> PomodoroSession:
+    session = PomodoroSession(
+        label=data.label,
+        work_minutes=data.work_minutes,
+        break_minutes=data.break_minutes,
+        status="running",
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def complete_pomodoro_session(db: Session, session_id: str) -> PomodoroSession | None:
+    session = db.get(PomodoroSession, session_id)
+    if not session or session.status != "running":
+        return None
+    session.status = "completed"
+    session.ended_at = datetime.now(timezone.utc)
+    db.add(
+        Event(
+            type="pomodoro_completed",
+            source="web",
+            payload={
+                "pomodoro_session_id": session.id,
+                "work_minutes": session.work_minutes,
+                "break_minutes": session.break_minutes,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def list_pomodoro_sessions(db: Session, limit: int = 20, offset: int = 0) -> list[PomodoroSession]:
+    stmt = select(PomodoroSession).order_by(desc(PomodoroSession.started_at)).offset(offset).limit(limit)
+    return list(db.execute(stmt).scalars().all())

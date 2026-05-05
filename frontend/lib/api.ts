@@ -4,6 +4,7 @@ export type EventType =
   | "work_started"
   | "focus_started"
   | "focus_ended"
+  | "pomodoro_completed"
   | "task_in_progress"
   | "task_completed"
   | "income_added"
@@ -34,6 +35,7 @@ export type DailySummary = {
   tasks_created: number;
   tasks_in_progress: number;
   tasks_completed: number;
+  pomodoros_completed: number;
   income_added: number;
   expenses_added: number;
   cleanings_done: number;
@@ -77,4 +79,14 @@ export type DailyInsight = {
   headline: string;
   summary: string;
   recommendations: string[];
+};
+
+export type PomodoroSession = {
+  id: string;
+  label: string | null;
+  work_minutes: number;
+  break_minutes: number;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
 };

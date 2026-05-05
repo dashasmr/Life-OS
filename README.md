@@ -24,6 +24,10 @@ alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+AI configuration (optional):
+- `AI_PROVIDER=rule_based` (default, free)
+- `AI_PROVIDER=openai` + `OPENAI_API_KEY=...` (paid API usage)
+
 API endpoints:
 - `GET /health`
 - `POST /events`
@@ -43,6 +47,9 @@ API endpoints:
 - `POST /focus/sessions`
 - `POST /focus/sessions/{session_id}/stop`
 - `GET /focus/sessions`
+- `POST /pomodoro/sessions`
+- `POST /pomodoro/sessions/{session_id}/complete`
+- `GET /pomodoro/sessions`
 
 ## 3) Run backend tests
 
@@ -113,3 +120,22 @@ This makes your project production-friendly because every environment
 - Added AI-like daily insight endpoint (`/analytics/daily-insight`) using rule-based logic.
 - Insight returns a headline, human-readable summary, and actionable recommendations.
 - Added "AI daily insight" section to frontend.
+
+## Stage 1.8 notes
+
+- Introduced a dedicated backend service layer (`app/services/insights.py`).
+- Moved daily insight text generation logic out of CRUD into service.
+- Prepared architecture for swapping rule-based insight with real LLM API later.
+
+## Stage 1.9 notes
+
+- Added AI provider feature flag via environment variables.
+- Supports `rule_based` and optional `openai` provider mode.
+- Added safe fallback to rule-based insight if OpenAI call fails.
+
+## Stage 2.0 notes
+
+- Added Pomodoro MVP with backend persistence.
+- Added endpoints to start/complete/list pomodoro sessions.
+- Completing pomodoro writes `pomodoro_completed` event.
+- Daily summary now includes `pomodoros_completed`.

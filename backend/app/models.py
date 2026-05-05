@@ -65,3 +65,15 @@ class FocusSession(Base):
     started_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     ended_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(nullable=True)
+
+
+class PomodoroSession(Base):
+    __tablename__ = "pomodoro_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    work_minutes: Mapped[int] = mapped_column(nullable=False, default=25)
+    break_minutes: Mapped[int] = mapped_column(nullable=False, default=5)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    started_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ended_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)

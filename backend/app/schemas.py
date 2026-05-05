@@ -8,6 +8,7 @@ EventType = Literal[
     "work_started",
     "focus_started",
     "focus_ended",
+    "pomodoro_completed",
     "task_in_progress",
     "task_completed",
     "income_added",
@@ -60,6 +61,7 @@ class DailySummaryRead(BaseModel):
     tasks_created: int
     tasks_in_progress: int
     tasks_completed: int
+    pomodoros_completed: int
     income_added: int
     expenses_added: int
     cleanings_done: int
@@ -123,3 +125,21 @@ class DailyInsightRead(BaseModel):
     headline: str
     summary: str
     recommendations: list[str]
+
+
+class PomodoroSessionCreate(BaseModel):
+    label: str | None = Field(default=None, max_length=120)
+    work_minutes: int = Field(default=25, ge=10, le=120)
+    break_minutes: int = Field(default=5, ge=1, le=60)
+
+
+class PomodoroSessionRead(BaseModel):
+    id: str
+    label: str | None
+    work_minutes: int
+    break_minutes: int
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+
+    model_config = {"from_attributes": True}
