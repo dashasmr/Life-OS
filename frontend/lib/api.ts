@@ -1,6 +1,14 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-export type EventType = "work_started" | "task_in_progress" | "task_completed" | "expense_added" | "cleaning_done";
+export type EventType =
+  | "work_started"
+  | "focus_started"
+  | "focus_ended"
+  | "task_in_progress"
+  | "task_completed"
+  | "income_added"
+  | "expense_added"
+  | "cleaning_done";
 
 export type EventItem = {
   id: string;
@@ -26,6 +34,40 @@ export type DailySummary = {
   tasks_created: number;
   tasks_in_progress: number;
   tasks_completed: number;
+  income_added: number;
   expenses_added: number;
   cleanings_done: number;
+  income_total: number;
+  expense_total: number;
+  balance_delta: number;
+};
+
+export type FinanceKind = "income" | "expense";
+
+export type FinanceTransaction = {
+  id: string;
+  kind: FinanceKind;
+  amount: number;
+  category: string;
+  note: string | null;
+  created_at: string;
+};
+
+export type CleaningStatus = "ok" | "soon" | "overdue";
+
+export type CleaningZone = {
+  id: string;
+  name: string;
+  frequency_days: number;
+  last_cleaned_at: string | null;
+  status: CleaningStatus;
+  created_at: string;
+};
+
+export type FocusSession = {
+  id: string;
+  label: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
 };

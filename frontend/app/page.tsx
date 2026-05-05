@@ -1,12 +1,26 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { API_URL, DailySummary, EventItem, EventType, TaskItem, TaskStatus } from "@/lib/api";
+import {
+  API_URL,
+  DailySummary,
+  EventItem,
+  EventType,
+  FinanceKind,
+  FinanceTransaction,
+  CleaningZone,
+  TaskItem,
+  TaskStatus,
+  FocusSession
+} from "@/lib/api";
 
 const EVENT_TYPES: EventType[] = [
   "work_started",
+  "focus_started",
+  "focus_ended",
   "task_in_progress",
   "task_completed",
+  "income_added",
   "expense_added",
   "cleaning_done"
 ];
@@ -15,10 +29,20 @@ export default function HomePage() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  const [cleaningZones, setCleaningZones] = useState<CleaningZone[]>([]);
+  const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
   const [taskFilter, setTaskFilter] = useState<"all" | TaskStatus>("all");
   const [eventType, setEventType] = useState<EventType>("work_started");
   const [payloadText, setPayloadText] = useState('{"note":"manual event"}');
   const [taskTitle, setTaskTitle] = useState("");
+  const [financeKind, setFinanceKind] = useState<FinanceKind>("expense");
+  const [financeAmount, setFinanceAmount] = useState("");
+  const [financeCategory, setFinanceCategory] = useState("");
+  const [financeNote, setFinanceNote] = useState("");
+  const [zoneName, setZoneName] = useState("");
+  const [zoneFrequencyDays, setZoneFrequencyDays] = useState("7");
+  const [focusLabel, setFocusLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const pageClass = "bg-[#b4a181] text-[#efe7d7]";
@@ -53,8 +77,34 @@ export default function HomePage() {
     setSummary(await response.json());
   }
 
+  async function loadTransactions() {
+    const response = await fetch(`${API_URL}/finance/transactions?limit=10`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Failed to fetch finance transactions");
+    }
+    setTransactions(await response.json());
+  }
+
+  async function loadCleaningZones() {
+    const response = await fetch(`${API_URL}/cleaning/zones`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Failed to fetch cleaning zones");
+    }
+    setCleaningZones(await response.json());
+  }
+
+  async function loadFocusSessions() {
+    const response = await fetch(`${API_URL}/focus/sessions?limit=10`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Failed to fetch focus sessions");
+    }
+    setFocusSessions(await response.json());
+  }
+
   useEffect(() => {
-    Promise.all([loadEvents(), loadTasks(), loadSummary()]).catch((err: Error) => setError(err.message));
+    Promise.all([loadEvents(), loadTasks(), loadSummary(), loadTransactions(), loadCleaningZones(), loadFocusSessions()]).catch((err: Error) =>
+      setError(err.message)
+    );
   }, [taskFilter]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -126,6 +176,116 @@ export default function HomePage() {
     }
 
     await Promise.all([loadTasks(), loadEvents(), loadSummary()]);
+  }
+
+  async function onCreateTransaction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+
+    const parsedAmount = Number(financeAmount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError("Amount must be a positive number");
+      return;
+    }
+    if (!financeCategory.trim()) {
+      setError("Category is required");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/finance/transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: financeKind,
+          amount: parsedAmount,
+          category: financeCategory.trim(),
+          note: financeNote.trim() || null
+        })
+      });
+
+      if (!response.ok) {
+        setError("Failed to create finance transaction");
+        return;
+      }
+
+      setFinanceAmount("");
+      setFinanceCategory("");
+      setFinanceNote("");
+      await Promise.all([loadTransactions(), loadEvents(), loadSummary()]);
+    } catch {
+      setError("Cannot connect to API. Please check backend server.");
+    }
+  }
+
+  async function onCreateCleaningZone(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    const frequency = Number(zoneFrequencyDays);
+    if (!zoneName.trim()) {
+      setError("Zone name is required");
+      return;
+    }
+    if (!Number.isInteger(frequency) || frequency < 1) {
+      setError("Frequency must be a positive integer");
+      return;
+    }
+    const response = await fetch(`${API_URL}/cleaning/zones`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: zoneName.trim(),
+        frequency_days: frequency
+      })
+    });
+    if (!response.ok) {
+      setError("Failed to create cleaning zone");
+      return;
+    }
+    setZoneName("");
+    setZoneFrequencyDays("7");
+    await loadCleaningZones();
+  }
+
+  async function markZoneDone(zoneId: string) {
+    setError(null);
+    const response = await fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    if (!response.ok) {
+      setError("Failed to mark cleaning as done");
+      return;
+    }
+    await Promise.all([loadCleaningZones(), loadEvents(), loadSummary()]);
+  }
+
+  async function startFocusSession() {
+    setError(null);
+    const response = await fetch(`${API_URL}/focus/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: focusLabel.trim() || null })
+    });
+    if (!response.ok) {
+      setError("Failed to start focus session");
+      return;
+    }
+    setFocusLabel("");
+    await Promise.all([loadFocusSessions(), loadEvents()]);
+  }
+
+  async function stopFocusSession(sessionId: string) {
+    setError(null);
+    const response = await fetch(`${API_URL}/focus/sessions/${sessionId}/stop`, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      setError("Failed to stop focus session");
+      return;
+    }
+    await Promise.all([loadFocusSessions(), loadEvents()]);
   }
 
   const taskCounters = {
@@ -293,6 +453,18 @@ export default function HomePage() {
               <p className="font-medium text-[#f2ead9]">{summary.tasks_completed}</p>
             </article>
             <article className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className={`text-sm ${mutedClass}`}>Income total</p>
+              <p className="font-medium text-[#f2ead9]">{summary.income_total.toFixed(2)}</p>
+            </article>
+            <article className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className={`text-sm ${mutedClass}`}>Expense total</p>
+              <p className="font-medium text-[#f2ead9]">{summary.expense_total.toFixed(2)}</p>
+            </article>
+            <article className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className={`text-sm ${mutedClass}`}>Balance delta</p>
+              <p className="font-medium text-[#f2ead9]">{summary.balance_delta.toFixed(2)}</p>
+            </article>
+            <article className="rounded-xl border border-[#313544] bg-[#202331] p-3">
               <p className={`text-sm ${mutedClass}`}>Cleaning done</p>
               <p className="font-medium text-[#f2ead9]">{summary.cleanings_done}</p>
             </article>
@@ -300,6 +472,144 @@ export default function HomePage() {
         ) : (
           <p className={`mt-3 ${mutedClass}`}>Loading summary...</p>
         )}
+      </section>
+
+      <section className={`mt-8 rounded-2xl border p-5 ${panelClass}`}>
+        <h2 className="text-xl font-semibold">Focus sessions</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+          <input
+            className={`rounded-xl border p-2.5 ${inputClass}`}
+            value={focusLabel}
+            onChange={(e) => setFocusLabel(e.target.value)}
+            placeholder="Session label (optional): Deep work, Reading..."
+          />
+          <button className="rounded-xl bg-[#f1e8d6] px-4 py-2 text-sm font-semibold text-[#1a1d26] hover:bg-[#e7dbc4]" onClick={startFocusSession} type="button">
+            Start focus
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {focusSessions.map((session) => (
+            <article key={session.id} className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className="font-medium text-[#f2ead9]">{session.label ?? "Untitled focus session"}</p>
+              <p className={`text-sm ${mutedClass}`}>
+                Started: {new Date(session.started_at).toLocaleString()}
+                {session.duration_seconds ? ` - Duration: ${Math.round(session.duration_seconds / 60)} min` : " - In progress"}
+              </p>
+              {!session.ended_at && (
+                <button
+                  className="mt-2 rounded-lg bg-[#d2bc93] px-3 py-1 text-xs font-semibold text-[#2b2317] hover:bg-[#dec9a4]"
+                  onClick={() => stopFocusSession(session.id)}
+                  type="button"
+                >
+                  Stop session
+                </button>
+              )}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className={`mt-8 rounded-2xl border p-5 ${panelClass}`}>
+        <h2 className="text-xl font-semibold">Cleaning</h2>
+        <form onSubmit={onCreateCleaningZone} className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="grid gap-2">
+            <label className={`text-sm ${mutedClass}`}>Zone name</label>
+            <input
+              className={`rounded-xl border p-2.5 ${inputClass}`}
+              value={zoneName}
+              onChange={(e) => setZoneName(e.target.value)}
+              placeholder="Desk, Kitchen, Bathroom..."
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className={`text-sm ${mutedClass}`}>Frequency (days)</label>
+            <input
+              className={`rounded-xl border p-2.5 ${inputClass}`}
+              value={zoneFrequencyDays}
+              onChange={(e) => setZoneFrequencyDays(e.target.value)}
+              placeholder="7"
+            />
+          </div>
+          <button className="rounded-xl bg-[#f1e8d6] px-4 py-2 text-sm font-semibold text-[#1a1d26] hover:bg-[#e7dbc4] md:col-span-2" type="submit">
+            Add zone
+          </button>
+        </form>
+        <div className="mt-4 space-y-2">
+          {cleaningZones.map((zone) => (
+            <article key={zone.id} className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className="font-medium text-[#f2ead9]">{zone.name}</p>
+              <p className={`text-sm ${mutedClass}`}>
+                Every {zone.frequency_days} days - Status: {zone.status}
+              </p>
+              <button
+                className="mt-2 rounded-lg bg-[#d2bc93] px-3 py-1 text-xs font-semibold text-[#2b2317] hover:bg-[#dec9a4]"
+                onClick={() => markZoneDone(zone.id)}
+                type="button"
+              >
+                Mark cleaned
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className={`mt-8 rounded-2xl border p-5 ${panelClass}`}>
+        <h2 className="text-xl font-semibold">Finance</h2>
+        <form onSubmit={onCreateTransaction} className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="grid gap-2">
+            <label className={`text-sm ${mutedClass}`}>Type</label>
+            <select
+              className={`rounded-xl border p-2.5 ${inputClass}`}
+              value={financeKind}
+              onChange={(e) => setFinanceKind(e.target.value as FinanceKind)}
+            >
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <label className={`text-sm ${mutedClass}`}>Amount</label>
+            <input
+              className={`rounded-xl border p-2.5 ${inputClass}`}
+              value={financeAmount}
+              onChange={(e) => setFinanceAmount(e.target.value)}
+              placeholder="100.00"
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className={`text-sm ${mutedClass}`}>Category</label>
+            <input
+              className={`rounded-xl border p-2.5 ${inputClass}`}
+              value={financeCategory}
+              onChange={(e) => setFinanceCategory(e.target.value)}
+              placeholder="Food, Salary, Transport..."
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className={`text-sm ${mutedClass}`}>Note</label>
+            <input
+              className={`rounded-xl border p-2.5 ${inputClass}`}
+              value={financeNote}
+              onChange={(e) => setFinanceNote(e.target.value)}
+              placeholder="Optional comment"
+            />
+          </div>
+          <button className="rounded-xl bg-[#f1e8d6] px-4 py-2 text-sm font-semibold text-[#1a1d26] hover:bg-[#e7dbc4] md:col-span-2" type="submit">
+            Add transaction
+          </button>
+        </form>
+
+        <div className="mt-4 space-y-2">
+          {transactions.map((transaction) => (
+            <article key={transaction.id} className="rounded-xl border border-[#313544] bg-[#202331] p-3">
+              <p className="font-medium text-[#f2ead9]">
+                {transaction.kind === "income" ? "+" : "-"}
+                {transaction.amount.toFixed(2)} ({transaction.category})
+              </p>
+              <p className={`text-sm ${mutedClass}`}>{transaction.note ?? "No note"}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="mt-8">

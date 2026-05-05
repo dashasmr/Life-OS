@@ -4,9 +4,20 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-EventType = Literal["work_started", "task_in_progress", "task_completed", "expense_added", "cleaning_done"]
+EventType = Literal[
+    "work_started",
+    "focus_started",
+    "focus_ended",
+    "task_in_progress",
+    "task_completed",
+    "income_added",
+    "expense_added",
+    "cleaning_done",
+]
 EventSource = Literal["web", "iot", "system"]
 TaskStatus = Literal["todo", "in_progress", "done"]
+FinanceKind = Literal["income", "expense"]
+CleaningStatus = Literal["ok", "soon", "overdue"]
 
 
 class EventCreate(BaseModel):
@@ -39,5 +50,69 @@ class TaskRead(BaseModel):
     status: TaskStatus
     created_at: datetime
     completed_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class DailySummaryRead(BaseModel):
+    date: str
+    events_total: int
+    tasks_created: int
+    tasks_in_progress: int
+    tasks_completed: int
+    income_added: int
+    expenses_added: int
+    cleanings_done: int
+    income_total: float
+    expense_total: float
+    balance_delta: float
+
+
+class FinanceTransactionCreate(BaseModel):
+    kind: FinanceKind
+    amount: float = Field(gt=0)
+    category: str = Field(min_length=1, max_length=64)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class FinanceTransactionRead(BaseModel):
+    id: str
+    kind: FinanceKind
+    amount: float
+    category: str
+    note: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CleaningZoneCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    frequency_days: int = Field(ge=1, le=60)
+
+
+class CleaningZoneRead(BaseModel):
+    id: str
+    name: str
+    frequency_days: int
+    last_cleaned_at: datetime | None
+    status: CleaningStatus
+    created_at: datetime
+
+
+class CleaningMarkDone(BaseModel):
+    cleaned_at: datetime | None = None
+
+
+class FocusSessionCreate(BaseModel):
+    label: str | None = Field(default=None, max_length=120)
+
+
+class FocusSessionRead(BaseModel):
+    id: str
+    label: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    duration_seconds: int | None
 
     model_config = {"from_attributes": True}

@@ -33,6 +33,15 @@ API endpoints:
 - `POST /tasks`
 - `GET /tasks?limit=20&offset=0&status=todo`
 - `PATCH /tasks/{task_id}/status`
+- `GET /analytics/daily-summary`
+- `POST /finance/transactions`
+- `GET /finance/transactions?limit=10&kind=expense`
+- `POST /cleaning/zones`
+- `GET /cleaning/zones`
+- `POST /cleaning/zones/{zone_id}/done`
+- `POST /focus/sessions`
+- `POST /focus/sessions/{session_id}/stop`
+- `GET /focus/sessions`
 
 ## 3) Run backend tests
 
@@ -45,7 +54,7 @@ pytest
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- -p 3001
 ```
 
 Set API URL if needed:
@@ -53,7 +62,7 @@ Set API URL if needed:
 set NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-Open http://localhost:3000
+Open http://localhost:3001
 
 ## Docker basics used in this project
 
@@ -71,9 +80,29 @@ Alembic keeps your database schema in versioned migration files.
 This makes your project production-friendly because every environment
 (local, staging, production) can apply the same schema history.
 
-## Stage 1.2 notes
+## Stage 1.3 notes
 
 - Added a `tasks` module as the first productivity feature.
 - Task status flow: `todo -> in_progress -> done`.
 - When status changes to `in_progress` or `done`, backend also writes
   an event (`task_in_progress` or `task_completed`) into `events`.
+- Added a first analytics endpoint (`daily-summary`) for today.
+- Added task filters and status counters in frontend UI.
+
+## Stage 1.4 notes
+
+- Added Finance MVP with `income` and `expense` transactions.
+- Every transaction also creates an event (`income_added` or `expense_added`).
+- Daily summary now includes income/expense totals and balance delta.
+
+## Stage 1.5 notes
+
+- Added Cleaning MVP with zones and cleaning frequency in days.
+- Added status automation for each zone: `ok`, `soon`, `overdue`.
+- Added "mark cleaned" action that updates zone date and creates `cleaning_done` event.
+
+## Stage 1.6 notes
+
+- Added Focus Sessions MVP (`start`, `stop`, `list`).
+- Each focus action also creates events (`focus_started`, `focus_ended`).
+- Added Focus Sessions block to frontend dashboard.
