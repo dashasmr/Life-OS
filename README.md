@@ -1,4 +1,4 @@
-# Life OS (MVP Stage 1.1)
+# Life OS (MVP Stage 1.2)
 
 Production-style MVP skeleton with:
 - FastAPI backend
@@ -30,6 +30,9 @@ API endpoints:
 - `GET /events?limit=20&offset=0&event_type=work_started`
 - `POST /iot/button/work`
 - `POST /iot/button/cleaning`
+- `POST /tasks`
+- `GET /tasks?limit=20&offset=0&status=todo`
+- `PATCH /tasks/{task_id}/status`
 
 ## 3) Run backend tests
 
@@ -59,9 +62,18 @@ Open http://localhost:3000
 - `docker compose logs -f db` streams PostgreSQL logs.
 - `docker compose down` stops and removes containers.
 - `docker compose down -v` also removes DB volume (full reset).
+- This project maps PostgreSQL to host port `5433` to avoid conflicts
+  with local PostgreSQL installations on `5432`.
 
 ## Why Alembic is important
 
 Alembic keeps your database schema in versioned migration files.
 This makes your project production-friendly because every environment
 (local, staging, production) can apply the same schema history.
+
+## Stage 1.2 notes
+
+- Added a `tasks` module as the first productivity feature.
+- Task status flow: `todo -> in_progress -> done`.
+- When status changes to `in_progress` or `done`, backend also writes
+  an event (`task_in_progress` or `task_completed`) into `events`.
