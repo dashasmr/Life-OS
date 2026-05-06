@@ -33,7 +33,9 @@ export default function OverviewPage() {
   const [payloadText, setPayloadText] = useState('{"note":"manual event"}');
   const [error, setError] = useState<string | null>(null);
   const [startingFocus, setStartingFocus] = useState(false);
+  const [showAllRecommendations, setShowAllRecommendations] = useState(false);
   const showDebugTools = process.env.NODE_ENV === "development";
+  const apiConnectionError = "Cannot connect to API. Please check backend server.";
 
   async function loadEvents() {
     const response = await fetch(`${API_URL}/events?limit=20`, { cache: "no-store" });
@@ -56,7 +58,13 @@ export default function OverviewPage() {
   }
 
   useEffect(() => {
-    Promise.all([loadEvents(), loadSummary(), loadInsight()]).catch((err: Error) => setError(err.message));
+    Promise.all([loadEvents(), loadSummary(), loadInsight()]).catch((err: Error) => {
+      if (err.message === "Failed to fetch") {
+        setError(apiConnectionError);
+        return;
+      }
+      setError(err.message);
+    });
   }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -69,17 +77,21 @@ export default function OverviewPage() {
       setError("Payload must be valid JSON");
       return;
     }
-    const response = await fetch(`${API_URL}/events`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: eventType, source: "web", payload })
-    });
-    if (!response.ok) {
-      setError("Failed to create event");
-      return;
+    try {
+      const response = await fetch(`${API_URL}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: eventType, source: "web", payload })
+      });
+      if (!response.ok) {
+        setError("Failed to create event");
+        return;
+      }
+      setPayloadText('{"note":"manual event"}');
+      await loadEvents();
+    } catch {
+      setError(apiConnectionError);
     }
-    setPayloadText('{"note":"manual event"}');
-    await loadEvents();
   }
 
   async function onStartFocusFromQuickAction() {
@@ -99,7 +111,7 @@ export default function OverviewPage() {
       toast.success("Focus session started");
       router.push("/focus");
     } catch {
-      setError("Cannot connect to API. Please check backend server.");
+      setError(apiConnectionError);
       toast.error("Cannot connect to API");
     } finally {
       setStartingFocus(false);
@@ -120,6 +132,8 @@ export default function OverviewPage() {
     { label: "Balance", value: `${(summary?.balance_delta ?? 0).toFixed(0)}` }
   ];
   const recentEvents = events.slice(0, 3);
+  const recommendations = insight?.recommendations ?? [];
+  const visibleRecommendations = showAllRecommendations ? recommendations : recommendations.slice(0, 2);
 
   function formatPayloadValue(value: unknown): string {
     if (value === null || value === undefined) return "—";
@@ -201,12 +215,22 @@ export default function OverviewPage() {
         <div className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-6">
           <h2 className="text-xl font-semibold text-white">Recommendations</h2>
           <div className="mt-4 space-y-3">
-            {(insight?.recommendations ?? []).map((item) => (
+            {visibleRecommendations.map((item) => (
               <article key={item} className="rounded-xl border-l-3 border-[#C6A36B] bg-[#171B21] p-4">
                 <p className="text-sm leading-6 text-[#E5E5E5]">{item}</p>
               </article>
             ))}
+            {!visibleRecommendations.length && <div className={ui.emptyState}>No recommendations yet.</div>}
           </div>
+          {recommendations.length > 2 && (
+            <button
+              className={`${ui.secondaryButton} mt-4`}
+              onClick={() => setShowAllRecommendations((prev) => !prev)}
+              type="button"
+            >
+              {showAllRecommendations ? "Show less" : `Show more (${recommendations.length - 2})`}
+            </button>
+          )}
         </div>
 
         <div className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-6">
@@ -241,14 +265,21 @@ export default function OverviewPage() {
                 <p className="text-sm font-medium capitalize text-white">{item.type.replaceAll("_", " ")}</p>
                 <p className="mt-1 text-xs text-[#8A8F98]">{formatDateTimeFiNumeric(item.created_at)}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {eventDetails(item).map((detail) => (
+                  {eventDetails(item)
+                    .slice(0, 2)
+                    .map((detail) => (
                     <span
                       key={`${item.id}-${detail.label}`}
                       className="rounded-lg border border-[#2A2F36] bg-[#171B21] px-2.5 py-1 text-xs text-[#8A8F98]"
                     >
                       <span className="text-[#E5E5E5]">{detail.label}:</span> {detail.value}
                     </span>
-                  ))}
+                    ))}
+                  {eventDetails(item).length > 2 && (
+                    <span className="rounded-lg border border-[#2A2F36] bg-[#171B21] px-2.5 py-1 text-xs text-[#8A8F98]">
+                      +{eventDetails(item).length - 2} more
+                    </span>
+                  )}
                 </div>
               </div>
             </article>

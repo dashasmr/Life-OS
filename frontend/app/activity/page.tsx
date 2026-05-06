@@ -66,6 +66,7 @@ export default function ActivityPage() {
   const [dateFilter, setDateFilter] = useState<"today" | "7d" | "30d" | "all">("7d");
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const apiConnectionError = "Cannot connect to API. Please check backend server.";
 
   useEffect(() => {
     async function loadEvents() {
@@ -75,7 +76,13 @@ export default function ActivityPage() {
       setEvents(rawItems.filter((item) => item.type !== "task_in_progress") as EventItem[]);
     }
 
-    loadEvents().catch((err: Error) => setError(err.message));
+    loadEvents().catch((err: Error) => {
+      if (err.message === "Failed to fetch") {
+        setError(apiConnectionError);
+        return;
+      }
+      setError(err.message);
+    });
   }, []);
 
   const filteredEvents = useMemo(() => {
@@ -116,7 +123,8 @@ export default function ActivityPage() {
     <div className={ui.contentClass}>
       <section className={ui.panelClass}>
         <h1 className="text-2xl font-semibold text-white">Activity log</h1>
-        <p className={`mt-1 text-sm ${ui.mutedText}`}>Full events history for analytics and debugging.</p>
+        <p className={`mt-1 text-sm ${ui.mutedText}`}>Clean history of important actions across Life OS.</p>
+        <p className={ui.microHint}>Tip: use date filter first, then search</p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
           <input
@@ -141,18 +149,21 @@ export default function ActivityPage() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {EVENT_FILTERS.map((filter) => (
-            <button
-              key={filter.id}
-              className={eventFilter === filter.id ? ui.pillActive : ui.pill}
-              onClick={() => setEventFilter(filter.id)}
-              type="button"
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
+        <details className="mt-4 rounded-xl border border-[#2A2F36] bg-[#0F1318] px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-[#C6A36B]">Advanced filters: event type</summary>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {EVENT_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                className={eventFilter === filter.id ? ui.pillActive : ui.pill}
+                onClick={() => setEventFilter(filter.id)}
+                type="button"
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </details>
 
         {error && <p className="mt-4 text-[#f7b0a2]">{error}</p>}
 
@@ -176,7 +187,7 @@ export default function ActivityPage() {
               </div>
             </article>
           ))}
-          {!filteredEvents.length && <p className="py-2 text-sm text-[#8A8F98]">No activity for this filter.</p>}
+          {!filteredEvents.length && <div className={ui.emptyState}>No activity for this filter yet.</div>}
         </div>
       </section>
     </div>
