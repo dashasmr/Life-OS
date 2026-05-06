@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -9,7 +9,6 @@ EventType = Literal[
     "focus_started",
     "focus_ended",
     "pomodoro_completed",
-    "task_in_progress",
     "task_completed",
     "income_added",
     "expense_added",
@@ -17,6 +16,7 @@ EventType = Literal[
 ]
 EventSource = Literal["web", "iot", "system"]
 TaskStatus = Literal["todo", "in_progress", "done"]
+TaskPriority = Literal["low", "medium", "high"]
 FinanceKind = Literal["income", "expense"]
 CleaningStatus = Literal["ok", "soon", "overdue"]
 
@@ -39,6 +39,8 @@ class EventRead(BaseModel):
 
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+    priority: TaskPriority = "medium"
+    due_date: date | None = None
 
 
 class TaskStatusUpdate(BaseModel):
@@ -49,6 +51,8 @@ class TaskRead(BaseModel):
     id: str
     title: str
     status: TaskStatus
+    priority: TaskPriority
+    due_date: date | None
     created_at: datetime
     completed_at: datetime | None
 

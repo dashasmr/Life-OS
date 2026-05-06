@@ -34,7 +34,7 @@ def list_events(db: Session, limit: int = 50, offset: int = 0, event_type: str |
 
 
 def create_task(db: Session, data: TaskCreate) -> Task:
-    task = Task(title=data.title, status="todo")
+    task = Task(title=data.title, status="todo", priority=data.priority, due_date=data.due_date)
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -56,9 +56,7 @@ def update_task_status(db: Session, task_id: str, status: TaskStatus) -> Task | 
     task.status = status
     task.completed_at = datetime.now(timezone.utc) if status == "done" else None
 
-    if status == "in_progress":
-        event_type = "task_in_progress"
-    elif status == "done":
+    if status == "done":
         event_type = "task_completed"
     else:
         event_type = None
@@ -95,6 +93,8 @@ def get_daily_summary(db: Session, target_date: date) -> dict[str, int | str]:
         Task.created_at < day_end,
     )
     tasks_created = db.execute(tasks_created_stmt).scalar_one()
+    tasks_in_progress_stmt = select(func.count(Task.id)).where(Task.status == "in_progress")
+    tasks_in_progress = db.execute(tasks_in_progress_stmt).scalar_one()
 
     finance_sum_stmt = select(func.coalesce(func.sum(FinanceTransaction.amount), 0)).where(
         FinanceTransaction.created_at >= day_start,
@@ -107,7 +107,7 @@ def get_daily_summary(db: Session, target_date: date) -> dict[str, int | str]:
         "date": target_date.isoformat(),
         "events_total": events_total,
         "tasks_created": tasks_created,
-        "tasks_in_progress": event_count("task_in_progress"),
+        "tasks_in_progress": tasks_in_progress,
         "tasks_completed": event_count("task_completed"),
         "pomodoros_completed": event_count("pomodoro_completed"),
         "income_added": event_count("income_added"),

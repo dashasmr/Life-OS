@@ -1,6 +1,7 @@
 import uuid
+from datetime import date
 
-from sqlalchemy import DateTime, Index, Numeric, String, func
+from sqlalchemy import Date, DateTime, Index, Numeric, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,10 +29,16 @@ class Task(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="todo")
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     completed_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (Index("ix_tasks_status", "status"),)
+    __table_args__ = (
+        Index("ix_tasks_status", "status"),
+        Index("ix_tasks_priority", "priority"),
+        Index("ix_tasks_due_date", "due_date"),
+    )
 
 
 class FinanceTransaction(Base):

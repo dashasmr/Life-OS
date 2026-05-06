@@ -1,18 +1,28 @@
-# Life OS (MVP Stage 1.2)
+# Life OS
 
-Production-style MVP skeleton with:
-- FastAPI backend
+Life OS is a production-style personal operating system that combines:
+- productivity (tasks, focus sessions, pomodoro)
+- personal finance (income, expenses, balance)
+- home maintenance (cleaning zones and status)
+- AI-powered daily insight (rule-based with optional LLM)
+- IoT-ready events (ESP32 buttons via simple HTTP)
+
+Tech stack:
+- FastAPI (Python) backend
 - PostgreSQL database
-- Next.js frontend
-- Events-first architecture
+- Next.js + TypeScript + Tailwind frontend
+- Docker for local Postgres
+- Alembic migrations
 
-## 1) Start PostgreSQL
+The system is **events-first**: every important action (task completed, expense added, cleaning done, focus started, pomodoro completed) writes a structured event to the `events` table. Analytics and AI insights are built on top of these events.
+
+## 1) Start PostgreSQL (Docker)
 
 ```bash
 docker compose up -d
 ```
 
-## 2) Run backend
+## 2) Run backend (FastAPI)
 
 ```bash
 cd backend
@@ -28,7 +38,11 @@ AI configuration (optional):
 - `AI_PROVIDER=rule_based` (default, free)
 - `AI_PROVIDER=openai` + `OPENAI_API_KEY=...` (paid API usage)
 
-API endpoints:
+AI configuration (optional):
+- `AI_PROVIDER=rule_based` (default, free)
+- `AI_PROVIDER=openai` + `OPENAI_API_KEY=...` (paid API usage)
+
+## 3) API surface (selected)
 - `GET /health`
 - `POST /events`
 - `GET /events?limit=20&offset=0&event_type=work_started`
@@ -51,13 +65,13 @@ API endpoints:
 - `POST /pomodoro/sessions/{session_id}/complete`
 - `GET /pomodoro/sessions`
 
-## 3) Run backend tests
+## 4) Run backend tests
 
 ```bash
 cd backend
 pytest
 ```
-## 4) Run frontend
+## 5) Run frontend (Next.js)
 
 ```bash
 cd frontend
@@ -72,7 +86,7 @@ set NEXT_PUBLIC_API_URL=http://localhost:8000
 
 Open http://localhost:3001
 
-## Docker basics used in this project
+## Docker basics
 
 - `docker compose up -d` starts services in background.
 - `docker compose ps` shows service status.
@@ -82,60 +96,6 @@ Open http://localhost:3001
 - This project maps PostgreSQL to host port `5433` to avoid conflicts
   with local PostgreSQL installations on `5432`.
 
-## Why Alembic is important
+## Migrations with Alembic
 
-Alembic keeps your database schema in versioned migration files.
-This makes your project production-friendly because every environment
-(local, staging, production) can apply the same schema history.
-
-## Stage 1.3 notes
-
-- Added a `tasks` module as the first productivity feature.
-- Task status flow: `todo -> in_progress -> done`.
-- When status changes to `in_progress` or `done`, backend also writes
-  an event (`task_in_progress` or `task_completed`) into `events`.
-- Added a first analytics endpoint (`daily-summary`) for today.
-- Added task filters and status counters in frontend UI.
-
-## Stage 1.4 notes
-
-- Added Finance MVP with `income` and `expense` transactions.
-- Every transaction also creates an event (`income_added` or `expense_added`).
-- Daily summary now includes income/expense totals and balance delta.
-
-## Stage 1.5 notes
-
-- Added Cleaning MVP with zones and cleaning frequency in days.
-- Added status automation for each zone: `ok`, `soon`, `overdue`.
-- Added "mark cleaned" action that updates zone date and creates `cleaning_done` event.
-
-## Stage 1.6 notes
-
-- Added Focus Sessions MVP (`start`, `stop`, `list`).
-- Each focus action also creates events (`focus_started`, `focus_ended`).
-- Added Focus Sessions block to frontend dashboard.
-
-## Stage 1.7 notes
-
-- Added AI-like daily insight endpoint (`/analytics/daily-insight`) using rule-based logic.
-- Insight returns a headline, human-readable summary, and actionable recommendations.
-- Added "AI daily insight" section to frontend.
-
-## Stage 1.8 notes
-
-- Introduced a dedicated backend service layer (`app/services/insights.py`).
-- Moved daily insight text generation logic out of CRUD into service.
-- Prepared architecture for swapping rule-based insight with real LLM API later.
-
-## Stage 1.9 notes
-
-- Added AI provider feature flag via environment variables.
-- Supports `rule_based` and optional `openai` provider mode.
-- Added safe fallback to rule-based insight if OpenAI call fails.
-
-## Stage 2.0 notes
-
-- Added Pomodoro MVP with backend persistence.
-- Added endpoints to start/complete/list pomodoro sessions.
-- Completing pomodoro writes `pomodoro_completed` event.
-- Daily summary now includes `pomodoros_completed`.
+This project uses Alembic to keep the PostgreSQL schema in versioned migration files, so every environment (local, staging, production) can apply the same schema history in a reproducible way.

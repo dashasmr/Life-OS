@@ -5,7 +5,6 @@ export type EventType =
   | "focus_started"
   | "focus_ended"
   | "pomodoro_completed"
-  | "task_in_progress"
   | "task_completed"
   | "income_added"
   | "expense_added"
@@ -20,11 +19,14 @@ export type EventItem = {
 };
 
 export type TaskStatus = "todo" | "in_progress" | "done";
+export type TaskPriority = "low" | "medium" | "high";
 
 export type TaskItem = {
   id: string;
   title: string;
   status: TaskStatus;
+  priority: TaskPriority;
+  due_date: string | null;
   created_at: string;
   completed_at: string | null;
 };
