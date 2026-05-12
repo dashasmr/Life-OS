@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.crud import complete_pomodoro_session, list_pomodoro_sessions, start_pomodoro_session
 from app.database import get_db
+from app.models import Task
 from app.schemas import PomodoroSessionCreate, PomodoroSessionRead
 
 router = APIRouter(prefix="/pomodoro", tags=["pomodoro"])
@@ -10,6 +11,12 @@ router = APIRouter(prefix="/pomodoro", tags=["pomodoro"])
 
 @router.post("/sessions", response_model=PomodoroSessionRead, status_code=201)
 def start_pomodoro_session_endpoint(payload: PomodoroSessionCreate, db: Session = Depends(get_db)):
+    if payload.task_id:
+        task = db.get(Task, payload.task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task.status == "done":
+            raise HTTPException(status_code=400, detail="Cannot link pomodoro to a completed task")
     return start_pomodoro_session(db, payload)
 
 

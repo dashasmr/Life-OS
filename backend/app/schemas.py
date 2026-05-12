@@ -8,6 +8,7 @@ EventType = Literal[
     "work_started",
     "focus_started",
     "focus_ended",
+    "focus_session_completed",
     "pomodoro_completed",
     "task_completed",
     "income_added",
@@ -121,11 +122,13 @@ class CleaningMarkDone(BaseModel):
 
 class FocusSessionCreate(BaseModel):
     label: str | None = Field(default=None, max_length=120)
+    task_id: str | None = None
 
 
 class FocusSessionRead(BaseModel):
     id: str
     label: str | None
+    task_id: str | None
     started_at: datetime
     ended_at: datetime | None
     duration_seconds: int | None
@@ -142,6 +145,7 @@ class DailyInsightRead(BaseModel):
 
 class PomodoroSessionCreate(BaseModel):
     label: str | None = Field(default=None, max_length=120)
+    task_id: str | None = None
     work_minutes: int = Field(default=25, ge=10, le=120)
     break_minutes: int = Field(default=5, ge=1, le=60)
 
@@ -149,6 +153,7 @@ class PomodoroSessionCreate(BaseModel):
 class PomodoroSessionRead(BaseModel):
     id: str
     label: str | None
+    task_id: str | None
     work_minutes: int
     break_minutes: int
     status: str
@@ -156,3 +161,23 @@ class PomodoroSessionRead(BaseModel):
     ended_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class DailySnapshotSystemState(BaseModel):
+    mind: str
+    home: str
+    finance: str
+
+
+class DailySnapshotRead(BaseModel):
+    """Materialized daily metrics (UTC date) for analytics and time series."""
+
+    date: str
+    tasks_completed: int
+    focus_minutes: int
+    expenses_total: float
+    cleaning_completed: int
+    home_health_score: int | None
+    system_state: DailySnapshotSystemState
+    created_at: datetime
+    updated_at: datetime

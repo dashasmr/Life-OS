@@ -248,14 +248,20 @@ def mark_cleaning_done(db: Session, zone_id: str, cleaned_at: datetime | None = 
 
 
 def start_focus_session(db: Session, data: FocusSessionCreate) -> FocusSession:
-    session = FocusSession(label=data.label)
+    session = FocusSession(label=data.label, task_id=data.task_id)
     db.add(session)
     db.flush()
+    started_payload: dict = {"focus_session_id": session.id, "label": session.label}
+    if session.task_id:
+        task = db.get(Task, session.task_id)
+        if task:
+            started_payload["task_id"] = task.id
+            started_payload["task_title"] = task.title
     db.add(
         Event(
             type="focus_started",
             source="web",
-            payload={"focus_session_id": session.id, "label": session.label},
+            payload=started_payload,
         )
     )
     db.commit()
@@ -269,11 +275,30 @@ def stop_focus_session(db: Session, session_id: str) -> FocusSession | None:
         return None
     session.ended_at = datetime.now(timezone.utc)
     session.duration_seconds = int((session.ended_at - session.started_at).total_seconds())
+
+    task_title: str | None = None
+    if session.task_id:
+        task = db.get(Task, session.task_id)
+        if task:
+            task_title = task.title
+
+    duration_minutes = (
+        max(0, int(round(session.duration_seconds / 60))) if session.duration_seconds is not None else 0
+    )
+
     db.add(
         Event(
-            type="focus_ended",
+            type="focus_session_completed",
             source="web",
-            payload={"focus_session_id": session.id, "duration_seconds": session.duration_seconds},
+            payload={
+                "focus_session_id": session.id,
+                "task_id": session.task_id,
+                "task_title": task_title,
+                "duration_minutes": duration_minutes,
+                "duration_seconds": session.duration_seconds,
+                "started_at": session.started_at.isoformat(),
+                "ended_at": session.ended_at.isoformat(),
+            },
         )
     )
     db.commit()
@@ -309,6 +334,7 @@ def get_daily_insight(db: Session, target_date: date) -> dict:
 def start_pomodoro_session(db: Session, data: PomodoroSessionCreate) -> PomodoroSession:
     session = PomodoroSession(
         label=data.label,
+        task_id=data.task_id,
         work_minutes=data.work_minutes,
         break_minutes=data.break_minutes,
         status="running",
@@ -325,15 +351,22 @@ def complete_pomodoro_session(db: Session, session_id: str) -> PomodoroSession |
         return None
     session.status = "completed"
     session.ended_at = datetime.now(timezone.utc)
+
+    pomodoro_payload: dict = {
+        "pomodoro_session_id": session.id,
+        "work_minutes": session.work_minutes,
+        "break_minutes": session.break_minutes,
+    }
+    if session.task_id:
+        task = db.get(Task, session.task_id)
+        pomodoro_payload["task_id"] = session.task_id
+        pomodoro_payload["task_title"] = task.title if task else None
+
     db.add(
         Event(
             type="pomodoro_completed",
             source="web",
-            payload={
-                "pomodoro_session_id": session.id,
-                "work_minutes": session.work_minutes,
-                "break_minutes": session.break_minutes,
-            },
+            payload=pomodoro_payload,
         )
     )
     db.commit()

@@ -1,5 +1,5 @@
-import OverviewPage from "@/app/overview/page";
+import { redirect } from "next/navigation";
 
 export default function HomePage() {
-  return <OverviewPage />;
+  redirect("/dashboard/overview");
 }

@@ -1,9 +1,11 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+/** Default matches README / uvicorn --port 8765 (port 8000 often triggers WinError 10013 on Windows). */
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8765";
 
 export type EventType =
   | "work_started"
   | "focus_started"
   | "focus_ended"
+  | "focus_session_completed"
   | "pomodoro_completed"
   | "task_completed"
   | "income_added"
@@ -49,6 +51,25 @@ export type DailySummary = {
   balance_delta: number;
 };
 
+/** Materialized UTC-day snapshot from GET /analytics/daily-snapshot */
+export type DailySnapshotSystemState = {
+  mind: string;
+  home: string;
+  finance: string;
+};
+
+export type DailySnapshot = {
+  date: string;
+  tasks_completed: number;
+  focus_minutes: number;
+  expenses_total: number;
+  cleaning_completed: number;
+  home_health_score: number | null;
+  system_state: DailySnapshotSystemState;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FinanceKind = "income" | "expense";
 
 export type FinanceTransaction = {
@@ -80,6 +101,7 @@ export type CleaningZone = {
 export type FocusSession = {
   id: string;
   label: string | null;
+  task_id: string | null;
   started_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
@@ -95,6 +117,7 @@ export type DailyInsight = {
 export type PomodoroSession = {
   id: string;
   label: string | null;
+  task_id: string | null;
   work_minutes: number;
   break_minutes: number;
   status: string;

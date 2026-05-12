@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.crud import list_focus_sessions, start_focus_session, stop_focus_session
 from app.database import get_db
+from app.models import Task
 from app.schemas import FocusSessionCreate, FocusSessionRead
 
 router = APIRouter(prefix="/focus", tags=["focus"])
@@ -10,6 +11,12 @@ router = APIRouter(prefix="/focus", tags=["focus"])
 
 @router.post("/sessions", response_model=FocusSessionRead, status_code=201)
 def start_focus_session_endpoint(payload: FocusSessionCreate, db: Session = Depends(get_db)):
+    if payload.task_id:
+        task = db.get(Task, payload.task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if task.status == "done":
+            raise HTTPException(status_code=400, detail="Cannot link focus to a completed task")
     return start_focus_session(db, payload)
 
 

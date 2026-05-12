@@ -1,7 +1,7 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Index, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -70,6 +70,7 @@ class FocusSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    task_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     started_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     ended_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(nullable=True)
@@ -80,8 +81,26 @@ class PomodoroSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    task_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     work_minutes: Mapped[int] = mapped_column(nullable=False, default=25)
     break_minutes: Mapped[int] = mapped_column(nullable=False, default=5)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
     started_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     ended_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DailySnapshot(Base):
+    """Materialized end-of-day style metrics for analytics / time series (UTC calendar date)."""
+
+    __tablename__ = "daily_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    tasks_completed: Mapped[int] = mapped_column(nullable=False, default=0)
+    focus_minutes: Mapped[int] = mapped_column(nullable=False, default=0)
+    expenses_total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    cleaning_completed: Mapped[int] = mapped_column(nullable=False, default=0)
+    home_health_score: Mapped[int | None] = mapped_column(nullable=True)
+    system_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
