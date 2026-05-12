@@ -1,16 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { API_URL, DailyInsight, DailySummary, EventItem, EventType } from "@/lib/api";
-import { formatDateFiNumeric, formatDateTimeFiNumeric } from "@/lib/datetime";
+import { API_URL, CleaningZone, DailyInsight, DailySummary, EventItem, EventType, FinanceRangeSummary, FocusSession, TaskItem } from "@/lib/api";
+import { cleaningActionLabel, formatSignedEur, pickNextCleaningZone, pickTopPriorityTask } from "@/lib/commandCenter";
+import { formatDateFiNumeric, formatDateTimeFiNumeric, getLocalDayRangeIso, getLocalMonthRangeIso } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { generateRuleInsights, type RuleInsight } from "@/services/insights";
 import { toast } from "sonner";
 
 const EVENT_TYPES: EventType[] = [
@@ -34,6 +36,11 @@ export default function OverviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [startingFocus, setStartingFocus] = useState(false);
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
+  const [commandTasks, setCommandTasks] = useState<TaskItem[]>([]);
+  const [commandZones, setCommandZones] = useState<CleaningZone[]>([]);
+  const [financeToday, setFinanceToday] = useState<FinanceRangeSummary | null>(null);
+  const [financeMonth, setFinanceMonth] = useState<FinanceRangeSummary | null>(null);
+  const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
   const showDebugTools = process.env.NODE_ENV === "development";
   const apiConnectionError = "Cannot connect to API. Please check backend server.";
 
@@ -57,8 +64,49 @@ export default function OverviewPage() {
     setInsight(await response.json());
   }
 
+  async function loadCommandCenterTasks() {
+    const response = await fetch(`${API_URL}/tasks?limit=100`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch tasks");
+    setCommandTasks(await response.json());
+  }
+
+  async function loadCommandCenterZones() {
+    const response = await fetch(`${API_URL}/cleaning/zones`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch cleaning zones");
+    setCommandZones(await response.json());
+  }
+
+  async function loadFinanceRangeSummaries() {
+    const now = new Date();
+    const day = getLocalDayRangeIso(now);
+    const month = getLocalMonthRangeIso(now);
+    const qs = (from: string, to: string) => `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const [dayRes, monthRes] = await Promise.all([
+      fetch(`${API_URL}/finance/summary/range?${qs(day.from, day.to)}`, { cache: "no-store" }),
+      fetch(`${API_URL}/finance/summary/range?${qs(month.from, month.to)}`, { cache: "no-store" })
+    ]);
+    if (!dayRes.ok) throw new Error("Failed to fetch finance day summary");
+    if (!monthRes.ok) throw new Error("Failed to fetch finance month summary");
+    setFinanceToday(await dayRes.json());
+    setFinanceMonth(await monthRes.json());
+  }
+
+  async function loadFocusSessions() {
+    const response = await fetch(`${API_URL}/focus/sessions?limit=50`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch focus sessions");
+    setFocusSessions(await response.json());
+  }
+
   useEffect(() => {
-    Promise.all([loadEvents(), loadSummary(), loadInsight()]).catch((err: Error) => {
+    Promise.all([
+      loadEvents(),
+      loadSummary(),
+      loadInsight(),
+      loadCommandCenterTasks(),
+      loadCommandCenterZones(),
+      loadFinanceRangeSummaries(),
+      loadFocusSessions()
+    ]).catch((err: Error) => {
       if (err.message === "Failed to fetch") {
         setError(apiConnectionError);
         return;
@@ -135,6 +183,26 @@ export default function OverviewPage() {
   const recommendations = insight?.recommendations ?? [];
   const visibleRecommendations = showAllRecommendations ? recommendations : recommendations.slice(0, 2);
 
+  const topTask = pickTopPriorityTask(commandTasks);
+  const nextZone = pickNextCleaningZone(commandZones);
+  const ruleInsights = useMemo(
+    () =>
+      generateRuleInsights({
+        focusSessions,
+        cleaningZones: commandZones,
+        expensesTodayTotal: financeToday?.expense_total ?? 0,
+        tasks: commandTasks
+      }),
+    [focusSessions, commandZones, financeToday, commandTasks]
+  );
+
+  function insightCategoryLabel(category: RuleInsight["category"]): string {
+    if (category === "productivity") return "Productivity";
+    if (category === "cleaning") return "Cleaning";
+    if (category === "finance") return "Finance";
+    return "Tasks";
+  }
+
   function formatPayloadValue(value: unknown): string {
     if (value === null || value === undefined) return "—";
     if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -181,6 +249,117 @@ export default function OverviewPage() {
   return (
     <div className={ui.contentClass}>
       {error && <p className="text-[#f7b0a2]">{error}</p>}
+
+      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-6 md:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Today Command Center</h2>
+            <p className={`mt-1 text-sm ${ui.mutedText}`}>What matters most right now</p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">Top priority task</p>
+            {topTask ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-lg font-medium text-white">{topTask.title}</p>
+                <p className={`text-sm ${ui.mutedText}`}>
+                  High priority
+                  {topTask.due_date ? ` · Due ${formatDateFiNumeric(topTask.due_date)}` : ""}
+                </p>
+                <Link href="/tasks" className={`${ui.secondaryButton} mt-2 inline-flex`}>
+                  Open tasks
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <div className={ui.emptyState}>No priority task yet</div>
+                <Link href="/tasks" className={`${ui.secondaryButton} inline-flex`}>
+                  Add a high-priority task
+                </Link>
+              </div>
+            )}
+          </Card>
+
+          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">Next cleaning action</p>
+            {nextZone ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-lg font-medium text-white">{cleaningActionLabel(nextZone)}</p>
+                <p className={`text-sm ${ui.mutedText}`}>Every {nextZone.frequency_days} days</p>
+                <Link href="/cleaning" className={`${ui.secondaryButton} mt-2 inline-flex`}>
+                  Open cleaning
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <div className={ui.emptyState}>No cleaning zones yet</div>
+                <Link href="/cleaning" className={`${ui.secondaryButton} inline-flex`}>
+                  Add a zone
+                </Link>
+              </div>
+            )}
+          </Card>
+
+          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">Financial snapshot</p>
+            <div className="mt-3 space-y-3">
+              <div>
+                <p className={`text-sm ${ui.mutedText}`}>Today balance</p>
+                <p className="mt-1 text-2xl font-semibold text-white">
+                  {financeToday ? formatSignedEur(financeToday.balance_delta) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className={`text-sm ${ui.mutedText}`}>Monthly balance</p>
+                <p className="mt-1 text-2xl font-semibold text-white">
+                  {financeMonth ? formatSignedEur(financeMonth.balance_delta) : "—"}
+                </p>
+              </div>
+              <p className={`text-xs ${ui.mutedText}`}>
+                Full-month totals from the server (all transactions in your local calendar day/month).
+              </p>
+              <Link href="/finance" className={`${ui.secondaryButton} inline-flex`}>
+                Open finance
+              </Link>
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-6 md:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Insights</h2>
+            <p className={`mt-1 text-sm ${ui.mutedText}`}>
+              Rule-based signals from your data (no cloud AI).
+            </p>
+          </div>
+        </div>
+
+        {ruleInsights.length > 0 ? (
+          <ul className="mt-5 space-y-3">
+            {ruleInsights.map((item) => (
+              <li key={item.id}>
+                <article className="rounded-xl border border-[#2A2F36] border-l-4 border-l-[#C6A36B] bg-[#0F1318] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">
+                    {insightCategoryLabel(item.category)}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#E5E5E5]">{item.message}</p>
+                </article>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className={`${ui.emptyState} mt-5 border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="font-medium text-[#c9d0d8]">All clear for now</p>
+            <p className={`mt-2 text-sm ${ui.mutedText}`}>
+              No rule-based alerts match your current data. Check back after you log focus, spending, cleaning, or tasks.
+            </p>
+          </div>
+        )}
+      </section>
 
       <section className="rounded-2xl border border-[#2A2F36] bg-gradient-to-br from-[#11151A] to-[#0B0D10] p-8 md:p-10">
         <div className="flex flex-wrap items-center justify-between gap-3">

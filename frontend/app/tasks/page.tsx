@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { API_URL, TaskItem, TaskPriority, TaskStatus } from "@/lib/api";
+import { API_URL, TaskEnergyType, TaskItem, TaskPriority, TaskStatus } from "@/lib/api";
 import { ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ export default function TasksPage() {
   const [taskTitle, setTaskTitle] = useState("");
   const [taskPriority, setTaskPriority] = useState<TaskPriority>("medium");
   const [taskDueDate, setTaskDueDate] = useState("");
+  const [taskEnergyType, setTaskEnergyType] = useState<TaskEnergyType | "">("");
   const [error, setError] = useState<string | null>(null);
 
   async function loadTasks() {
@@ -46,7 +47,8 @@ export default function TasksPage() {
         body: JSON.stringify({
           title: taskTitle.trim(),
           priority: taskPriority,
-          due_date: taskDueDate || null
+          due_date: taskDueDate || null,
+          energy_type: taskEnergyType || null
         })
       });
       if (!response.ok) {
@@ -57,6 +59,7 @@ export default function TasksPage() {
       setTaskTitle("");
       setTaskPriority("medium");
       setTaskDueDate("");
+      setTaskEnergyType("");
       toast.success("Task added");
       await loadTasks();
     } catch {
@@ -97,6 +100,21 @@ export default function TasksPage() {
     medium: "Medium",
     high: "High"
   };
+
+  const energyLabel: Record<TaskEnergyType, string> = {
+    high_focus: "High focus",
+    low_energy: "Low energy",
+    creative: "Creative",
+    admin: "Admin"
+  };
+
+  function energyBadgeClass(energy: TaskEnergyType | null): string {
+    if (!energy) return "border border-[#2A2F36] bg-[#171B21] text-[#8A8F98]";
+    if (energy === "high_focus") return "border border-[#4a6fa8] bg-[#1a2333] text-[#a8c4f0]";
+    if (energy === "low_energy") return "border border-[#5c6d5c] bg-[#1c221c] text-[#c5d4c5]";
+    if (energy === "creative") return "border border-[#7a5294] bg-[#231a2a] text-[#e0c4f0]";
+    return "border border-[#8a7349] bg-[#2a2418] text-[#f0d9a8]";
+  }
 
   const today = new Date();
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -211,6 +229,20 @@ export default function TasksPage() {
               <label className={ui.formLabel}>Due date (optional)</label>
               <input className={ui.inputClass} type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
             </div>
+            <div className="grid gap-2">
+              <label className={ui.formLabel}>Energy type</label>
+              <select
+                className={ui.inputClass}
+                value={taskEnergyType}
+                onChange={(e) => setTaskEnergyType(e.target.value as TaskEnergyType | "")}
+              >
+                <option value="">Not set</option>
+                <option value="high_focus">High focus</option>
+                <option value="low_energy">Low energy</option>
+                <option value="creative">Creative</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
             <div className="flex items-end justify-end md:col-span-2">
               <Button className={ui.primaryButton} type="submit">
                 Add task
@@ -230,6 +262,9 @@ export default function TasksPage() {
             <p className={ui.cardTitle}>{task.title}</p>
             <p className={`text-sm ${ui.mutedText}`}>Status: {statusLabel[task.status]}</p>
             <div className="mt-2 flex flex-wrap gap-2">
+              <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${energyBadgeClass(task.energy_type ?? null)}`}>
+                Energy: {task.energy_type ? energyLabel[task.energy_type] : "Not set"}
+              </span>
               <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${priorityBadgeClass(task.priority)}`}>
                 Priority: {priorityLabel[task.priority]}
               </span>

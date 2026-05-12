@@ -1,7 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { API_URL, FinanceKind, FinanceTransaction } from "@/lib/api";
+import { API_URL, FinanceKind, FinanceRangeSummary, FinanceTransaction } from "@/lib/api";
+import { formatEurPlain } from "@/lib/commandCenter";
+import { getLocalMonthRangeIso } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,15 +16,26 @@ export default function FinancePage() {
   const [category, setCategory] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [monthTotals, setMonthTotals] = useState<FinanceRangeSummary | null>(null);
 
   async function loadTransactions() {
-    const response = await fetch(`${API_URL}/finance/transactions?limit=20`, { cache: "no-store" });
+    const response = await fetch(`${API_URL}/finance/transactions?limit=80`, { cache: "no-store" });
     if (!response.ok) throw new Error("Failed to fetch finance transactions");
     setTransactions(await response.json());
   }
 
+  async function loadMonthTotals() {
+    const { from, to } = getLocalMonthRangeIso();
+    const response = await fetch(
+      `${API_URL}/finance/summary/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      { cache: "no-store" }
+    );
+    if (!response.ok) throw new Error("Failed to fetch monthly finance summary");
+    setMonthTotals(await response.json());
+  }
+
   useEffect(() => {
-    loadTransactions().catch((err: Error) => setError(err.message));
+    Promise.all([loadTransactions(), loadMonthTotals()]).catch((err: Error) => setError(err.message));
   }, []);
 
   async function onCreateTransaction(event: FormEvent<HTMLFormElement>) {
@@ -59,12 +72,14 @@ export default function FinancePage() {
       setCategory("");
       setNote("");
       toast.success("Transaction added");
-      await loadTransactions();
+      await Promise.all([loadTransactions(), loadMonthTotals()]);
     } catch {
       setError("Cannot connect to API. Please check backend server.");
       toast.error("Cannot connect to API");
     }
   }
+
+  const monthSummary = monthTotals ?? { income_total: 0, expense_total: 0, balance_delta: 0 };
 
   return (
     <div className={ui.contentClass}>
@@ -80,6 +95,30 @@ export default function FinancePage() {
         >
           <p className={ui.microHint}>Tip: add income/expense as soon as it happens</p>
         </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="text-sm text-[#8A8F98]">Income this month</p>
+            <p className="mt-2 text-3xl font-semibold tabular-nums text-white">{formatEurPlain(monthSummary.income_total)}</p>
+          </Card>
+          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="text-sm text-[#8A8F98]">Expenses this month</p>
+            <p className="mt-2 text-3xl font-semibold tabular-nums text-white">{formatEurPlain(monthSummary.expense_total)}</p>
+          </Card>
+          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
+            <p className="text-sm text-[#8A8F98]">Monthly balance</p>
+            <p
+              className={`mt-2 text-3xl font-semibold tabular-nums ${
+                monthSummary.balance_delta >= 0 ? "text-[#b7e4c7]" : "text-[#ffb3b3]"
+              }`}
+            >
+              {formatEurPlain(monthSummary.balance_delta)}
+            </p>
+          </Card>
+        </div>
+        <p className={`mt-2 text-xs ${ui.mutedText}`}>
+          Monthly cards include every transaction in the current local month (server aggregate), not only the list below.
+        </p>
 
         <div className={ui.formCard}>
           <form onSubmit={onCreateTransaction} className={ui.formGrid}>

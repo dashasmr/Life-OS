@@ -31,6 +31,7 @@ class Task(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="todo")
     priority: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    energy_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     completed_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

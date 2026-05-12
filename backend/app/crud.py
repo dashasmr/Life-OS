@@ -34,7 +34,13 @@ def list_events(db: Session, limit: int = 50, offset: int = 0, event_type: str |
 
 
 def create_task(db: Session, data: TaskCreate) -> Task:
-    task = Task(title=data.title, status="todo", priority=data.priority, due_date=data.due_date)
+    task = Task(
+        title=data.title,
+        status="todo",
+        priority=data.priority,
+        due_date=data.due_date,
+        energy_type=data.energy_type,
+    )
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -154,6 +160,30 @@ def list_finance_transactions(
     if kind:
         stmt = stmt.where(FinanceTransaction.kind == kind)
     return list(db.execute(stmt).scalars().all())
+
+
+def finance_totals_in_range(db: Session, range_start: datetime, range_end: datetime) -> dict[str, float]:
+    """Sum income and expenses with created_at in [range_start, range_end). All rows are included (no limit)."""
+    if range_start >= range_end:
+        return {"income_total": 0.0, "expense_total": 0.0, "balance_delta": 0.0}
+
+    income_stmt = select(func.coalesce(func.sum(FinanceTransaction.amount), 0)).where(
+        FinanceTransaction.kind == "income",
+        FinanceTransaction.created_at >= range_start,
+        FinanceTransaction.created_at < range_end,
+    )
+    expense_stmt = select(func.coalesce(func.sum(FinanceTransaction.amount), 0)).where(
+        FinanceTransaction.kind == "expense",
+        FinanceTransaction.created_at >= range_start,
+        FinanceTransaction.created_at < range_end,
+    )
+    income_total = float(db.execute(income_stmt).scalar_one())
+    expense_total = float(db.execute(expense_stmt).scalar_one())
+    return {
+        "income_total": income_total,
+        "expense_total": expense_total,
+        "balance_delta": income_total - expense_total,
+    }
 
 
 def _cleaning_status(last_cleaned_at: datetime | None, frequency_days: int) -> str:

@@ -20,6 +20,7 @@ export type EventItem = {
 
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
+export type TaskEnergyType = "high_focus" | "low_energy" | "creative" | "admin";
 
 export type TaskItem = {
   id: string;
@@ -27,6 +28,8 @@ export type TaskItem = {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
+  /** Present after API supports task energy; treat missing as unset. */
+  energy_type?: TaskEnergyType | null;
   created_at: string;
   completed_at: string | null;
 };
@@ -55,6 +58,12 @@ export type FinanceTransaction = {
   category: string;
   note: string | null;
   created_at: string;
+};
+
+export type FinanceRangeSummary = {
+  income_total: number;
+  expense_total: number;
+  balance_delta: number;
 };
 
 export type CleaningStatus = "ok" | "soon" | "overdue";

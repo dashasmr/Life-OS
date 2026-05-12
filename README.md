@@ -1,101 +1,175 @@
 # Life OS
 
 Life OS is a production-style personal operating system that combines:
-- productivity (tasks, focus sessions, pomodoro)
-- personal finance (income, expenses, balance)
-- home maintenance (cleaning zones and status)
-- AI-powered daily insight (rule-based with optional LLM)
-- IoT-ready events (ESP32 buttons via simple HTTP)
 
-Tech stack:
-- FastAPI (Python) backend
-- PostgreSQL database
-- Next.js + TypeScript + Tailwind frontend
-- Docker for local Postgres
-- Alembic migrations
+- **Productivity** — tasks, focus sessions, Pomodoro
+- **Finance** — income, expenses, balance signals
+- **Home** — cleaning zones and status
+- **Insights** — daily summary and AI-style recommendations (rule-based by default, optional OpenAI)
+- **Events** — structured activity log (IoT-ready via HTTP)
 
-The system is **events-first**: every important action (task completed, expense added, cleaning done, focus started, pomodoro completed) writes a structured event to the `events` table. Analytics and AI insights are built on top of these events.
+## Tech stack
 
-## 1) Start PostgreSQL (Docker)
+| Layer    | Technology                          |
+| -------- | ----------------------------------- |
+| Backend  | FastAPI (Python), SQLAlchemy        |
+| Database | PostgreSQL (Docker locally)         |
+| Migrations | Alembic                           |
+| Frontend | Next.js, TypeScript, Tailwind       |
+
+The app is **events-first**: important actions write rows to the `events` table. Analytics and insights are built on that stream.
+
+## Prerequisites
+
+- **Docker** (for local PostgreSQL)
+- **Python 3.11+** (backend)
+- **Node.js 18+** (frontend)
+
+## Quick start
+
+Run everything from the **repository root** (the folder that contains `backend/`, `frontend/`, and `docker-compose.yml`).
+
+### 1) Start PostgreSQL
 
 ```bash
 docker compose up -d
 ```
 
-## 2) Run backend (FastAPI)
+PostgreSQL is exposed on host port **5433** (mapped from container `5432`) to avoid clashes with a local Postgres on `5432`.
+
+Check status:
+
+```bash
+docker compose ps
+```
+
+### 2) Backend (FastAPI)
 
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
-alembic upgrade head
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-AI configuration (optional):
-- `AI_PROVIDER=rule_based` (default, free)
-- `AI_PROVIDER=openai` + `OPENAI_API_KEY=...` (paid API usage)
+Activate the virtual environment:
 
-AI configuration (optional):
-- `AI_PROVIDER=rule_based` (default, free)
-- `AI_PROVIDER=openai` + `OPENAI_API_KEY=...` (paid API usage)
+- **Windows (PowerShell):** `.\.venv\Scripts\Activate.ps1`
+- **Windows (cmd):** `.venv\Scripts\activate.bat`
+- **macOS / Linux:** `source .venv/bin/activate`
 
-## 3) API surface (selected)
-- `GET /health`
-- `POST /events`
-- `GET /events?limit=20&offset=0&event_type=work_started`
-- `POST /iot/button/work`
-- `POST /iot/button/cleaning`
-- `POST /tasks`
-- `GET /tasks?limit=20&offset=0&status=todo`
-- `PATCH /tasks/{task_id}/status`
-- `GET /analytics/daily-summary`
-- `GET /analytics/daily-insight`
-- `POST /finance/transactions`
-- `GET /finance/transactions?limit=10&kind=expense`
-- `POST /cleaning/zones`
-- `GET /cleaning/zones`
-- `POST /cleaning/zones/{zone_id}/done`
-- `POST /focus/sessions`
-- `POST /focus/sessions/{session_id}/stop`
-- `GET /focus/sessions`
-- `POST /pomodoro/sessions`
-- `POST /pomodoro/sessions/{session_id}/complete`
-- `GET /pomodoro/sessions`
+Then:
 
-## 4) Run backend tests
+```bash
+pip install -r requirements.txt
+```
+
+Create your local env file (do **not** commit real secrets):
+
+```bash
+# Windows (cmd)
+copy .env.example .env
+
+# PowerShell
+Copy-Item .env.example .env
+
+# macOS / Linux
+cp .env.example .env
+```
+
+Edit `.env` if your database URL or ports differ. Defaults match `docker-compose.yml`.
+
+Apply migrations and run the API:
+
+```bash
+python -m alembic upgrade head
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Run these commands from the **`backend`** directory so the `app` package resolves correctly.
+
+- Interactive API docs: `http://127.0.0.1:8000/docs`
+- Health check: `http://127.0.0.1:8000/health`
+
+#### AI (optional)
+
+Configure in `.env` (see `.env.example`):
+
+- `AI_PROVIDER=rule_based` — default, no external API
+- `AI_PROVIDER=openai` — requires `OPENAI_API_KEY` (paid usage per provider pricing)
+
+Never commit API keys or personal `.env` files.
+
+### 3) Frontend (Next.js)
+
+In a **second** terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the URL Next.js prints (usually `http://localhost:3000`). If the port is busy:
+
+```bash
+npm run dev -- -p 3001
+```
+
+Point the browser app at your API (defaults to `http://localhost:8000` if unset):
+
+- **PowerShell:** `$env:NEXT_PUBLIC_API_URL = "http://127.0.0.1:8000"`
+- **cmd:** `set NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`
+- **macOS / Linux:** `export NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`
+
+Restart `npm run dev` after changing `NEXT_PUBLIC_*` variables.
+
+## Selected API routes
+
+| Method | Path | Purpose |
+| ------ | ---- | ------- |
+| GET | `/health` | Liveness |
+| POST | `/events` | Create event |
+| GET | `/events` | List events |
+| POST | `/tasks` | Create task |
+| GET | `/tasks` | List tasks |
+| PATCH | `/tasks/{task_id}/status` | Update task status |
+| GET | `/analytics/daily-summary` | Daily aggregates |
+| GET | `/analytics/daily-insight` | Insight payload |
+| GET | `/finance/summary/range?from=&to=` | Income / expense / balance for `[from, to)` (all rows) |
+| POST / GET | `/finance/transactions` | Finance CRUD-style usage |
+| POST / GET | `/cleaning/zones` | Cleaning zones |
+| POST | `/cleaning/zones/{zone_id}/done` | Mark cleaned |
+| POST / GET | `/focus/sessions` | Focus sessions |
+| POST / GET | `/pomodoro/sessions` | Pomodoro sessions |
+| POST | `/iot/button/work` | IoT-friendly shortcut |
+| POST | `/iot/button/cleaning` | IoT-friendly shortcut |
+
+See `/docs` for the full, up-to-date contract.
+
+## Backend tests
 
 ```bash
 cd backend
 pytest
 ```
-## 5) Run frontend (Next.js)
 
-```bash
-cd frontend
-npm install
-npm run dev -- -p 3001
-```
+(Activate the same `.venv` you use to run the app.)
 
-Set API URL if needed:
-```bash
-set NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+## Docker cheat sheet
 
-Open http://localhost:3001
+| Command | What it does |
+| ------- | ------------ |
+| `docker compose up -d` | Start services in the background |
+| `docker compose ps` | Show container status |
+| `docker compose logs -f db` | Follow Postgres logs |
+| `docker compose down` | Stop and remove containers |
+| `docker compose down -v` | Same + delete the DB volume (full reset) |
 
-## Docker basics
+## Migrations
 
-- `docker compose up -d` starts services in background.
-- `docker compose ps` shows service status.
-- `docker compose logs -f db` streams PostgreSQL logs.
-- `docker compose down` stops and removes containers.
-- `docker compose down -v` also removes DB volume (full reset).
-- This project maps PostgreSQL to host port `5433` to avoid conflicts
-  with local PostgreSQL installations on `5432`.
+Schema changes live under `backend/alembic/versions/`. After pulling new code, run `python -m alembic upgrade head` from `backend/` with your venv active.
 
-## Migrations with Alembic
+## Security notes for contributors
 
-This project uses Alembic to keep the PostgreSQL schema in versioned migration files, so every environment (local, staging, production) can apply the same schema history in a reproducible way.
+- Keep secrets only in local `.env` files.
+- Do not commit real API keys, personal database URLs, or machine-specific paths.
+- Use `.env.example` as the template others can copy.

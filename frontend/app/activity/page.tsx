@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { API_URL, EventItem, EventType } from "@/lib/api";
-import { formatDateTimeFiNumeric } from "@/lib/datetime";
+import { formatTimeLocalHm } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
 
 const EVENT_FILTERS: Array<{ id: "all" | EventType; label: string }> = [
@@ -22,6 +22,47 @@ function formatPayloadValue(value: unknown): string {
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return String(value);
+}
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** YYYY-MM-DD in the user's local calendar (for grouping). */
+function localDayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "invalid";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatActivityDayHeading(dayKey: string, now: Date = new Date()): string {
+  if (dayKey === "invalid") return "Unknown date";
+  const [ys, ms, ds] = dayKey.split("-");
+  const y = Number(ys);
+  const m = Number(ms);
+  const day = Number(ds);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return "Unknown date";
+
+  const groupDate = startOfLocalDay(new Date(y, m - 1, day));
+  const todayStart = startOfLocalDay(now);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+  if (groupDate.getTime() === todayStart.getTime()) return "Today";
+  if (groupDate.getTime() === yesterdayStart.getTime()) return "Yesterday";
+
+  return groupDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function formatEventTypeTitle(type: EventType | string): string {
+  return type
+    .replaceAll("_", " ")
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function eventDetails(item: EventItem): Array<{ label: string; value: string }> {
@@ -119,6 +160,21 @@ export default function ActivityPage() {
     });
   }, [events, eventFilter, dateFilter, searchQuery]);
 
+  const groupedByDay = useMemo(() => {
+    const sorted = [...filteredEvents].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const map = new Map<string, EventItem[]>();
+    for (const item of sorted) {
+      const key = localDayKey(item.created_at);
+      const list = map.get(key);
+      if (list) list.push(item);
+      else map.set(key, [item]);
+    }
+    const keys = Array.from(map.keys()).filter((k) => k !== "invalid").sort((a, b) => b.localeCompare(a));
+    return keys.map((dayKey) => ({ dayKey, items: map.get(dayKey) ?? [] }));
+  }, [filteredEvents]);
+
   return (
     <div className={ui.contentClass}>
       <section className={ui.panelClass}>
@@ -167,25 +223,30 @@ export default function ActivityPage() {
 
         {error && <p className="mt-4 text-[#f7b0a2]">{error}</p>}
 
-        <div className="mt-4 space-y-0">
-          {filteredEvents.map((item) => (
-            <article key={item.id} className="flex gap-3 border-b border-[#2A2F36] py-4 last:border-b-0">
-              <span className="mt-2 size-2 shrink-0 rounded-full bg-[#C6A36B]" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium capitalize text-white">{item.type.replaceAll("_", " ")}</p>
-                <p className="mt-1 text-xs text-[#8A8F98]">{formatDateTimeFiNumeric(item.created_at)}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {eventDetails(item).map((detail) => (
-                    <span
-                      key={`${item.id}-${detail.label}`}
-                      className="rounded-lg border border-[#2A2F36] bg-[#171B21] px-2.5 py-1 text-xs text-[#8A8F98]"
-                    >
-                      <span className="text-[#E5E5E5]">{detail.label}:</span> {detail.value}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </article>
+        <div className="mt-6 space-y-10">
+          {groupedByDay.map(({ dayKey, items }) => (
+            <section key={dayKey}>
+              <h2 className="border-b border-[#2A2F36] pb-2 text-lg font-semibold tracking-tight text-white">
+                {formatActivityDayHeading(dayKey)}
+              </h2>
+              <ul className="mt-4 space-y-6">
+                {items.map((item) => (
+                  <li key={item.id} className="border-b border-[#2A2F36]/80 pb-6 last:border-b-0 last:pb-0">
+                    <p className="text-sm font-medium text-white">
+                      <span className="text-[#C6A36B]">•</span> {formatEventTypeTitle(item.type)}
+                    </p>
+                    <p className="mt-1 pl-4 text-sm tabular-nums text-[#8A8F98]">{formatTimeLocalHm(item.created_at)}</p>
+                    <div className="mt-2 space-y-1 pl-4 text-sm leading-relaxed text-[#c9d0d8]">
+                      {eventDetails(item).map((detail) => (
+                        <p key={`${item.id}-${detail.label}`}>
+                          <span className="text-[#8A8F98]">{detail.label}:</span> {detail.value}
+                        </p>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
           {!filteredEvents.length && <div className={ui.emptyState}>No activity for this filter yet.</div>}
         </div>

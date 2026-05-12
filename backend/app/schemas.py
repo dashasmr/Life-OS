@@ -17,6 +17,7 @@ EventType = Literal[
 EventSource = Literal["web", "iot", "system"]
 TaskStatus = Literal["todo", "in_progress", "done"]
 TaskPriority = Literal["low", "medium", "high"]
+TaskEnergyType = Literal["high_focus", "low_energy", "creative", "admin"]
 FinanceKind = Literal["income", "expense"]
 CleaningStatus = Literal["ok", "soon", "overdue"]
 
@@ -41,6 +42,7 @@ class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     priority: TaskPriority = "medium"
     due_date: date | None = None
+    energy_type: TaskEnergyType | None = None
 
 
 class TaskStatusUpdate(BaseModel):
@@ -53,6 +55,7 @@ class TaskRead(BaseModel):
     status: TaskStatus
     priority: TaskPriority
     due_date: date | None
+    energy_type: TaskEnergyType | None = None
     created_at: datetime
     completed_at: datetime | None
 
@@ -90,6 +93,12 @@ class FinanceTransactionRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class FinanceRangeSummaryRead(BaseModel):
+    income_total: float
+    expense_total: float
+    balance_delta: float
 
 
 class CleaningZoneCreate(BaseModel):
