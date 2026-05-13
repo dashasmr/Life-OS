@@ -7,6 +7,7 @@ from app.crud import get_daily_insight, get_daily_summary
 from app.database import get_db
 from app.models import DailySnapshot
 from app.schemas import (
+    BehaviorPatternsPayload,
     BehaviorPatternRead,
     DailyInsightRead,
     DailySnapshotRead,
@@ -74,19 +75,22 @@ def daily_snapshots_list_endpoint(
     return [_snapshot_read(r) for r in rows]
 
 
-@router.get("/behavior-patterns", response_model=list[BehaviorPatternRead])
+@router.get("/behavior-patterns", response_model=BehaviorPatternsPayload)
 def behavior_patterns_endpoint(
     db: Session = Depends(get_db),
     range_start: datetime = Query(..., alias="from"),
     range_end: datetime = Query(..., alias="to"),
 ):
     """
-    Half-open window [from, to). Uses UTC-bucketed days for events and snapshot dates aligned to the same bounds.
+    Half-open window [from, to). Bucketing uses the timezone carried by `from` (matches client local ranges).
     """
     if range_start >= range_end:
         raise HTTPException(status_code=422, detail="from must be before to")
-    raw = run_behavior_pattern_engine(db, range_start, range_end)
-    return [BehaviorPatternRead.model_validate(p) for p in raw]
+    raw, insufficient = run_behavior_pattern_engine(db, range_start, range_end)
+    return BehaviorPatternsPayload(
+        patterns=[BehaviorPatternRead.model_validate(p) for p in raw],
+        insufficient_history=insufficient,
+    )
 
 
 @router.get("/risk-signals", response_model=list[RiskSignalRead])

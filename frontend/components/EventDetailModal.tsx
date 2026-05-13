@@ -54,24 +54,24 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" role="presentation">
       <button
         type="button"
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-lifeos-nav-overlay backdrop-blur-[2px]"
         aria-label="Close event details"
         onClick={onClose}
       />
       <div
-        className="relative flex max-h-[min(92vh,720px)] w-full max-w-lg flex-col rounded-t-2xl border border-[#2A2F36] bg-[#11151A] shadow-[0_-8px_40px_rgba(0,0,0,0.5)] sm:rounded-2xl sm:shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+        className="relative flex max-h-[min(92vh,720px)] w-full max-w-lg flex-col rounded-t-2xl border border-lifeos-border bg-lifeos-card shadow-ds-lg sm:rounded-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="event-detail-title"
       >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#2A2F36] px-5 py-4 sm:px-6">
-          <h2 id="event-detail-title" className="text-lg font-semibold text-white">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-lifeos-border px-5 py-4 sm:px-6">
+          <h2 id="event-detail-title" className="text-lg font-semibold text-lifeos-fg">
             Event details
           </h2>
           <button
             ref={closeRef}
             type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-[#8A8F98] outline-none transition hover:bg-[#1a1f26] hover:text-white focus-visible:ring-2 focus-visible:ring-[#C6A36B]/45"
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-lifeos-fg-muted outline-none transition hover:bg-lifeos-hover hover:text-lifeos-fg focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
             onClick={onClose}
             aria-label="Close"
           >
@@ -83,28 +83,28 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
           <dl className="space-y-3 text-sm">
             <div>
               <dt className={`${ui.mutedText} font-medium`}>Type</dt>
-              <dd className="mt-1 font-mono text-[0.8125rem] text-[#E5E5E5]">{event.type}</dd>
+              <dd className="mt-1 font-mono text-[0.8125rem] text-lifeos-fg">{event.type}</dd>
             </div>
             <div>
               <dt className={`${ui.mutedText} font-medium`}>Module</dt>
-              <dd className="mt-1 text-[#E5E5E5]">{eventTypeToModule(event.type)}</dd>
+              <dd className="mt-1 text-lifeos-fg">{eventTypeToModule(event.type)}</dd>
             </div>
             <div>
               <dt className={`${ui.mutedText} font-medium`}>Time</dt>
-              <dd className="mt-1 tabular-nums text-[#E5E5E5]">{formatLocalDateTimeLong(event.created_at)}</dd>
+              <dd className="mt-1 tabular-nums text-lifeos-fg">{formatLocalDateTimeLong(event.created_at)}</dd>
             </div>
           </dl>
 
           <div className="mt-6">
-            <p className={`text-xs font-semibold uppercase tracking-wide text-[#C6A36B]`}>Metadata</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-lifeos-accent">Metadata</p>
             {payloadEmpty ? (
               <p className={`mt-2 text-sm ${ui.mutedText}`}>No metadata</p>
             ) : (
-              <dl className="mt-3 space-y-2 rounded-xl border border-[#2A2F36] bg-[#0F1318] p-4">
+              <dl className="mt-3 space-y-2 rounded-xl border border-lifeos-border bg-lifeos-inset p-4">
                 {sortedKeys.map((key) => (
                   <div key={key} className="grid gap-1 sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)] sm:gap-3">
                     <dt className={`break-words text-sm ${ui.mutedText}`}>{formatMetadataLabel(key)}</dt>
-                    <dd className="break-words font-mono text-[0.8125rem] text-[#c9d0d8]">{formatMetadataValue(event.payload[key])}</dd>
+                    <dd className="break-words font-mono text-[0.8125rem] text-lifeos-fg-secondary">{formatMetadataValue(event.payload[key])}</dd>
                   </div>
                 ))}
               </dl>
@@ -112,9 +112,9 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
           </div>
 
           <div className="mt-6">
-            <p className={`text-xs font-semibold uppercase tracking-wide text-[#C6A36B]`}>Raw JSON</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-lifeos-accent">Raw JSON</p>
             <pre
-              className={`${ui.codeBlock} mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[0.75rem] leading-relaxed text-[#b8c0cc]`}
+              className={`${ui.codeBlock} mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[0.75rem] leading-relaxed text-lifeos-fg-secondary`}
             >
               {rawJson}
             </pre>

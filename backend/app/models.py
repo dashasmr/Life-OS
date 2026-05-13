@@ -120,6 +120,23 @@ class Goal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class RecommendationFeedback(Base):
+    """User outcome for a surfaced recommendation id (adaptive learning signal)."""
+
+    __tablename__ = "recommendation_feedback"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    recommendation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    local_hour: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_recommendation_feedback_recommendation_id", "recommendation_id"),
+        Index("ix_recommendation_feedback_created_at", "created_at"),
+    )
+
+
 class AIReview(Base):
     """Persisted structured daily AI review (one row per UTC calendar day)."""
 

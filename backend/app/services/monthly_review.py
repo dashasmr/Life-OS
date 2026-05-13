@@ -93,6 +93,16 @@ def build_rule_based_monthly_review(context: dict[str, Any]) -> dict[str, Any]:
                 msg = str(p.get("message") or "").strip()
                 if msg and msg not in patterns:
                     patterns.append(msg)
+    habits_ctx = context.get("detectedHabits") or []
+    if isinstance(habits_ctx, list):
+        for h in sorted(habits_ctx, key=lambda x: -float(x.get("confidence") or 0))[:5]:
+            if not isinstance(h, dict):
+                continue
+            if float(h.get("confidence") or 0) < 0.5:
+                continue
+            msg = str(h.get("message") or "").strip()
+            if msg and msg not in patterns:
+                patterns.append(msg)
     if top_cat and top_amt > 0:
         line = f"{top_cat} led spending at about €{top_amt:.2f} in expenses."
         if line not in patterns:
@@ -126,7 +136,8 @@ def build_openai_monthly_review(context: dict[str, Any], api_key: str, model: st
         "You are a calm personal Life OS coach. You receive one JSON object describing a calendar month "
         "(productivity aggregates, finance totals, cleaning/home signals, optional top spending category). "
         "The object may include behaviorPatterns: rule-based analytics (id, category, confidence, message). "
-        "You may echo or paraphrase up to two high-confidence items (confidence >= 0.5) inside your patterns array. "
+        "The object may include detectedHabits: automatically inferred routines from multi-week events "
+        "(id, category, confidence, frequency, message) — you may echo up to two items with confidence >= 0.5 in patterns. "
         "The object may include riskSignals (severity, category, message) — fold medium/high items into risks when relevant. "
         "Answer from that data only — do not invent transactions or tasks. "
         "Respond with strict JSON only (no markdown) and exactly these keys: "

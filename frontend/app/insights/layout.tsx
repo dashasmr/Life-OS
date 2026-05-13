@@ -7,8 +7,8 @@ const INSIGHTS_TABS = [
   { href: "/insights/timeline", label: "Timeline" },
   { href: "/insights/review", label: "Review" },
   { href: "/insights/monthly-review", label: "Monthly Review" },
-  { href: "/insights/ai-insight", label: "AI Daily Insight" },
-  { href: "/insights/ai-reviews", label: "AI Review History" }
+  { href: "/insights/ai-insight", label: "Daily insight" },
+  { href: "/insights/ai-reviews", label: "Review history" }
 ] as const;
 
 export default function InsightsLayout({ children }: { children: React.ReactNode }) {

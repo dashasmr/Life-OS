@@ -4,10 +4,15 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { sendWithOfflineQueue } from "@/services/offlineQueue";
 import { API_URL, CleaningZone, FocusSession, TaskItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { WhyMuted } from "@/components/explainability/WhyLine";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { cn } from "@/lib/utils";
 import { useAutomationPrefsEpoch } from "@/hooks/useAutomationPrefsEpoch";
+import { useUserPreferencesEpoch } from "@/hooks/useUserPreferencesEpoch";
 import {
   categoryNotificationEmoji,
   generateNotifications,
@@ -35,6 +40,7 @@ export function DashboardNotificationsSection({
   onRefresh
 }: Props) {
   const automationPrefsEpoch = useAutomationPrefsEpoch();
+  const userPrefsEpoch = useUserPreferencesEpoch();
   const router = useRouter();
   const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
@@ -53,7 +59,7 @@ export function DashboardNotificationsSection({
       now
     });
     return mergeNotificationReadState(drafts, readIds, now);
-  }, [zones, focusSessions, tasks, expensesTodayTotal, readIds, automationPrefsEpoch]);
+  }, [zones, focusSessions, tasks, expensesTodayTotal, readIds, automationPrefsEpoch, userPrefsEpoch]);
 
   const markRead = useCallback((id: string) => {
     const now = new Date();
@@ -80,12 +86,22 @@ export function DashboardNotificationsSection({
         setActionBusyId(n.id);
         try {
           if (a.target === NOTIFICATION_MUTATION.focus_start) {
-            const res = await fetch(`${API_URL}/focus/sessions`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ label: null, task_id: null })
-            });
-            if (!res.ok) throw new Error("focus");
+            const result = await sendWithOfflineQueue(
+              { kind: "focus_start", body: { label: null, task_id: null } },
+              () =>
+                fetch(`${API_URL}/focus/sessions`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ label: null, task_id: null })
+                })
+            );
+            if (result.mode === "queued") {
+              toast.info("Pending sync", { description: "Saved locally." });
+              markRead(n.id);
+              await onRefresh?.();
+              return;
+            }
+            if (!result.response.ok) throw new Error("focus");
             toast.success("Focus session started");
             markRead(n.id);
             await onRefresh?.();
@@ -96,12 +112,20 @@ export function DashboardNotificationsSection({
           if (a.target === NOTIFICATION_MUTATION.cleaning_mark_done) {
             const zoneId = a.payload?.zoneId;
             if (typeof zoneId !== "string") throw new Error("zone");
-            const res = await fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({})
-            });
-            if (!res.ok) throw new Error("cleaning");
+            const result = await sendWithOfflineQueue({ kind: "cleaning_done", zoneId }, () =>
+              fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({})
+              })
+            );
+            if (result.mode === "queued") {
+              toast.info("Pending sync", { description: "Cleaning logged locally." });
+              markRead(n.id);
+              await onRefresh?.();
+              return;
+            }
+            if (!result.response.ok) throw new Error("cleaning");
             toast.success("Marked as cleaned");
             markRead(n.id);
             await onRefresh?.();
@@ -119,19 +143,19 @@ export function DashboardNotificationsSection({
     [markRead, onRefresh, router]
   );
 
-  function typeBorder(t: AppNotification["type"]): string {
-    if (t === "warning") return "border-l-amber-500/80";
-    if (t === "success") return "border-l-emerald-500/70";
-    return "border-l-[#3d5a7a]/80";
+  function typeAccentBar(t: AppNotification["type"]): string {
+    if (t === "warning") return "shadow-[inset_4px_0_0_0_rgba(220,200,154,0.5)]";
+    if (t === "success") return "shadow-[inset_4px_0_0_0_rgba(120,192,165,0.45)]";
+    return "shadow-[inset_4px_0_0_0_rgba(91,108,255,0.32)]";
   }
 
   return (
-    <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
+    <section className={ds.surfaces.contentPanelCompact}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-white">Notifications</h2>
+          <h2 className="text-lifeos-section font-semibold tracking-tight text-lifeos-fg">Notifications</h2>
           <p className={`mt-1 text-sm ${ui.mutedText}`}>
-            Same live signals as the bell — handle them here on mobile or from the top bar.
+            Same items as the bell. Full list works well on larger screens.
           </p>
         </div>
       </div>
@@ -141,21 +165,25 @@ export function DashboardNotificationsSection({
           {notifications.map((n) => (
             <li key={n.id}>
               <article
-                className={`rounded-xl border border-[#2A2F36] border-l-4 bg-[#0F1318] p-4 ${typeBorder(n.type)} ${
+                className={cn(
+                  "rounded-xl bg-lifeos-muted/25 p-4 shadow-inner",
+                  typeAccentBar(n.type),
                   n.read ? "opacity-70" : ""
-                }`}
+                )}
               >
                 <div className="flex gap-3">
                   <span className="text-xl leading-none" aria-hidden>
                     {categoryNotificationEmoji(n.category)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white">{n.title}</p>
+                    <p className="text-sm font-medium text-lifeos-fg">{n.title}</p>
                     <p className={`mt-1 text-xs leading-snug ${ui.mutedText}`}>{n.message}</p>
+                    <WhyMuted text={n.explanation ?? ""} />
                     {n.action ? (
                       <div className="mt-3">
                         <Button
-                          className={`min-h-11 px-4 text-xs ${n.action.type === "mutation" ? ui.primaryButton : ui.secondaryButton}`}
+                          variant={n.action.type === "mutation" ? "primary" : "secondary"}
+                          size="sm"
                           disabled={actionBusyId === n.id}
                           onClick={() => void runAction(n)}
                           type="button"
@@ -165,16 +193,16 @@ export function DashboardNotificationsSection({
                       </div>
                     ) : null}
                   </div>
-                  {!n.read ? <span className="mt-1 size-2 shrink-0 rounded-full bg-[#C6A36B]" title="Unread" /> : null}
+                  {!n.read ? <span className="mt-1 size-2 shrink-0 rounded-full bg-lifeos-accent/80" title="Unread" /> : null}
                 </div>
               </article>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="mt-4 rounded-lg border border-[#2A2F36] bg-[#141A22]/60 px-3 py-3">
+        <div className={cn("mt-4", ds.surfaces.toneWell)}>
           <p className={`text-sm ${ui.mutedText}`}>
-            <span className="font-medium text-[#c9d0d8]">You&apos;re caught up.</span> No actionable notifications right now.
+            <span className="font-medium text-lifeos-fg-secondary">You&apos;re caught up.</span> No actionable notifications right now.
           </p>
         </div>
       )}

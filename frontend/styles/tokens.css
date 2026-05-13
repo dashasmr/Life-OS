@@ -1,0 +1,45 @@
+/**
+ * Structural design tokens (spacing, radius, type scale).
+ * Theme-aware colors and shadows: `themes.css` (`--bg-*`, `--text-*`, `--surface-*`, `--shadow-*`, …).
+ */
+
+:root {
+  --lifeos-space-1: 4px;
+  --lifeos-space-2: 8px;
+  --lifeos-space-3: 12px;
+  --lifeos-space-4: 16px;
+  --lifeos-space-5: 24px;
+  --lifeos-space-6: 32px;
+  --lifeos-space-7: 48px;
+  --lifeos-space-8: 64px;
+
+  --lifeos-radius-card: 24px;
+  --lifeos-radius-button: 14px;
+  --lifeos-radius-pill: 999px;
+  /** Form controls — 14px per product spec (with Tailwind `rounded-ds-input`) */
+  --lifeos-radius-input: 14px;
+
+  /* Type scale — mirrors tailwind `lifeos-*` font sizes */
+  --lifeos-text-hero-size: 3rem;
+  --lifeos-text-hero-leading: 1.05;
+  --lifeos-text-display-size: 3rem;
+  --lifeos-text-display-leading: 1.05;
+  --lifeos-text-section-size: 1.75rem;
+  --lifeos-text-section-leading: 1.25;
+  --lifeos-text-card-title-size: 1.25rem;
+  --lifeos-text-card-title-leading: 1.35;
+  --lifeos-text-body-size: 1rem;
+  --lifeos-text-body-leading: 1.55;
+  --lifeos-text-body-secondary-size: 0.875rem;
+  --lifeos-text-caption-size: 0.75rem;
+  --lifeos-text-caption-leading: 1.45;
+  --lifeos-text-label-size: 0.6875rem;
+  --lifeos-text-label-leading: 1rem;
+
+  /** Interaction timing — calm, intentional (see `tailwind.config` lifeos-* durations) */
+  --lifeos-motion-fast: 120ms;
+  --lifeos-motion-normal: 180ms;
+  --lifeos-motion-slow: 260ms;
+  --lifeos-motion-theme: 250ms;
+  --lifeos-motion-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+}

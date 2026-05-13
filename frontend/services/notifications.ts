@@ -32,6 +32,8 @@ export type AppNotification = {
   message: string;
   created_at: string;
   read: boolean;
+  /** Plain-language reason from automation rules (optional). */
+  explanation?: string;
   action?: NotificationAction;
 };
 

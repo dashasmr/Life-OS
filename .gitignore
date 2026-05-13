@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .env
+.env*.local
 .next/
 node_modules/
 dist/

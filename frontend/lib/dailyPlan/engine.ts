@@ -1,7 +1,8 @@
 import type { CleaningZone, FocusSession, TaskItem } from "@/lib/api";
 import { pickTopPriorityTask } from "@/lib/commandCenter";
 import { hasFocusTouchToday } from "@/lib/systemStatus";
-import { HIGH_SPENDING_EUR_THRESHOLD } from "@/services/insights";
+import { getResolvedUserPreferences } from "@/services/preferences/storage";
+import { isWithinPreferredWorkHours } from "@/services/preferences/workday";
 import type { DailyPlanItem, DailyPlanPriority } from "@/lib/dailyPlan/types";
 
 export type DailyPlanEngineInput = {
@@ -28,8 +29,8 @@ function pickHighPriorityTasksInOrder(tasks: TaskItem[], now: Date, limit: numbe
   return out;
 }
 
-function financePriority(expensesTodayTotal: number): DailyPlanPriority | null {
-  if (expensesTodayTotal > HIGH_SPENDING_EUR_THRESHOLD) return "medium";
+function financePriority(expensesTodayTotal: number, limit: number): DailyPlanPriority | null {
+  if (expensesTodayTotal > limit) return "medium";
   if (expensesTodayTotal > 0) return "low";
   return null;
 }
@@ -37,9 +38,13 @@ function financePriority(expensesTodayTotal: number): DailyPlanPriority | null {
 /**
  * Builds 3–5 actionable rows for today from tasks, focus, cleaning, and finance signals.
  * `completed` is always false here; merge with client-side completion state in the UI.
+ * Uses Settings → Personalization (spending limit, focus length, workday window).
  */
 export function generateDailyPlan(input: DailyPlanEngineInput): DailyPlanItem[] {
   const now = input.now ?? new Date();
+  const prefs = getResolvedUserPreferences();
+  const focusLen = prefs.focusLengthMinutes;
+  const spendLimit = prefs.dailySpendingLimit;
   const items: DailyPlanItem[] = [];
 
   const highTasks = pickHighPriorityTasksInOrder(input.tasks, now, MAX_TASK_ITEMS);
@@ -54,10 +59,10 @@ export function generateDailyPlan(input: DailyPlanEngineInput): DailyPlanItem[] 
     });
   }
 
-  if (!hasFocusTouchToday(input.focusSessions, now)) {
+  if (!hasFocusTouchToday(input.focusSessions, now) && isWithinPreferredWorkHours(now, prefs)) {
     items.push({
       id: "plan-focus-session",
-      title: "Start a 25 min focus session",
+      title: `Start a ${focusLen} min focus session`,
       category: "focus",
       priority: "high",
       completed: false
@@ -79,7 +84,7 @@ export function generateDailyPlan(input: DailyPlanEngineInput): DailyPlanItem[] 
     });
   }
 
-  const fp = financePriority(input.expensesTodayTotal);
+  const fp = financePriority(input.expensesTodayTotal, spendLimit);
   if (fp) {
     items.push({
       id: "plan-finance-review",

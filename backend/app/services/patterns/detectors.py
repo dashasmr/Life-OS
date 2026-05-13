@@ -24,7 +24,7 @@ def detect_focus_productivity_pattern(
     with_focus = [task_by_day[d] for d in task_by_day if task_by_day[d] > 0 and d in focus_days]
     without = [task_by_day[d] for d in task_by_day if task_by_day[d] > 0 and d not in focus_days]
 
-    if len(with_focus) < 2 or len(without) < 2:
+    if len(with_focus) < 3 or len(without) < 3:
         return None
 
     mean_f = sum(with_focus) / len(with_focus)
@@ -54,7 +54,7 @@ def detect_cleaning_productivity_pattern(
     high_days = [task_by_day[d] for d, h in health_by_day.items() if h is not None and h >= 70]
     low_days = [task_by_day[d] for d, h in health_by_day.items() if h is not None and h < 50]
 
-    if len(high_days) < 2 or len(low_days) < 2:
+    if len(high_days) < 3 or len(low_days) < 3:
         return None
 
     mean_h = sum(high_days) / len(high_days)
@@ -76,8 +76,14 @@ def detect_cleaning_productivity_pattern(
 
 def detect_spending_top_category_pattern(
     category_totals: dict[str, float],
-    span_days: float,
+    calendar_span_days: int,
 ) -> dict[str, Any] | None:
+    """
+    `calendar_span_days` is the difference between local start/end calendar dates for [range_start, range_end),
+    i.e. whole days covered — never emit category narratives before at least a week of coverage.
+    """
+    if calendar_span_days < 7:
+        return None
     if not category_totals:
         return None
     total = sum(category_totals.values())
@@ -98,12 +104,12 @@ def detect_spending_top_category_pattern(
     if share < 0.22:
         return None
 
-    if span_days >= 25:
+    if calendar_span_days >= 25:
         period = "this month"
-    elif span_days >= 6:
-        period = "this week"
+    elif calendar_span_days >= 14:
+        period = "over the past couple of weeks"
     else:
-        period = "in this period"
+        period = "over the past week"
 
     display_cat = best_cat.strip() or "Uncategorized"
     confidence = _clamp_confidence(0.42 + 0.55 * min(1.0, share))

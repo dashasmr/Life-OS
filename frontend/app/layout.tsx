@@ -1,11 +1,12 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import { ReactNode } from "react";
-import { MobileBottomNav } from "@/components/MobileBottomNav";
-import { NavBar } from "@/components/NavBar";
-import { AppToaster } from "@/components/ui/toaster";
-import { ui } from "@/lib/ui";
+import { Providers } from "@/app/providers";
+import { AppShell } from "@/components/layout/AppShell";
+import { OfflineQueueMount } from "@/components/OfflineQueueMount";
+import { LifeOsRealtimeProvider } from "@/services/realtime";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -19,18 +20,27 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-[#0B0D10] text-[#E5E5E5]`}>
-        <div className={ui.pageClass}>
-          <NavBar />
-          <div
-            className={`${ui.containerClass} pt-24 max-md:pb-[calc(3.75rem+env(safe-area-inset-bottom))] min-w-0`}
-          >
-            {children}
-          </div>
-          <MobileBottomNav />
-          <AppToaster />
-        </div>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${inter.className} bg-lifeos-page text-lifeos-fg`}>
+        <Script id="lifeos-theme-init" strategy="beforeInteractive">
+          {`(function(){
+  try {
+    var k = "lifeos-theme";
+    var raw = localStorage.getItem(k);
+    var pref = (raw === "dark" || raw === "light" || raw === "system") ? raw : "system";
+    var resolved = pref === "system"
+      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      : pref;
+    document.documentElement.setAttribute("data-theme", resolved);
+  } catch (e) {}
+})();`}
+        </Script>
+        <Providers>
+          <LifeOsRealtimeProvider>
+            <OfflineQueueMount />
+            <AppShell>{children}</AppShell>
+          </LifeOsRealtimeProvider>
+        </Providers>
       </body>
     </html>
   );

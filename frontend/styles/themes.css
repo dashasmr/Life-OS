@@ -1,0 +1,195 @@
+/**
+ * Semantic theme tokens — consumed via Tailwind (`lifeos-*` colors map to these vars).
+ * Switch themes with `<html data-theme="dark | light">`.
+ *
+ * Life OS: neutral slate base + soft indigo accent only where it guides attention
+ * (primary actions, focus, active nav). No bright purple, no reward-style gold.
+ *
+ * Use `html[data-theme=…]` (not `[data-theme]` alone) so tokens override shadcn `:root`
+ * variables loaded later in `globals.css` — same names like `--accent` would otherwise win.
+ */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  /* Surfaces — deep neutral, low chroma */
+  --bg-primary: #0a0b0f;
+  --bg-secondary: #0f1116;
+  --bg-card: #13161c;
+  --bg-elevated: #181c24;
+  --bg-inset: #07080c;
+  --bg-muted: #161a21;
+  --bg-hover: #1b2028;
+
+  --text-primary: #e8ebf2;
+  /** Cool slate with a hint of indigo — reads warmer than flat gray on dark bg */
+  --text-secondary: #b9c2d4;
+  --text-muted: #94a0b4;
+
+  /** Primary accent — soft indigo (CTA, focus ring, active nav only in UI code) */
+  --accent: #5b6cff;
+  --accent-hover: #6d7cff;
+  --accent-foreground: #f4f6ff;
+  --accent-soft: rgba(91, 108, 255, 0.12);
+  --accent-soft-border: rgba(91, 108, 255, 0.15);
+
+  /**
+   * Legacy name `semantic-energy` — warm neutral slate for rare chips / labels.
+   * (Not a gold CTA lane; keep primary actions on `--accent`.)
+   */
+  --semantic-energy: #8b92a3;
+  --semantic-energy-hover: #9aa2b3;
+  --semantic-energy-foreground: #0d0f14;
+  --semantic-energy-muted: rgba(139, 146, 163, 0.12);
+
+  --success: #78c0a5;
+  --success-muted: #283d32;
+  --warning: #dcc89a;
+  --warning-muted: #4d422c;
+  --danger: #e8a8a8;
+  --danger-muted: #5c2828;
+
+  --border-subtle: #1d222b;
+  --border-strong: #282e38;
+
+  --nav-text: #a8b2c4;
+  --nav-overlay: rgba(5, 6, 9, 0.65);
+  --focus-ring: rgba(91, 108, 255, 0.26);
+
+  --status-risk: #e89898;
+  --status-risk-bg: #181112;
+  --status-risk-border: #7a3838;
+  --status-healthy: #a2d4b6;
+  --status-healthy-bg: #0c100e;
+  --status-healthy-border: #355a45;
+  /** Focus lane — same family as accent, desaturated */
+  --status-focus: #9fabcc;
+  --status-focus-bg: rgba(91, 108, 255, 0.08);
+  --status-focus-border: rgba(91, 108, 255, 0.2);
+  --status-neutral: #868d9a;
+  --status-neutral-bg: #161a21;
+  --status-neutral-border: #383e4a;
+
+  --surface-domain-ai: rgba(91, 108, 255, 0.05);
+  --surface-domain-ai-border: rgba(91, 108, 255, 0.12);
+  --surface-domain-finance: rgba(95, 150, 130, 0.04);
+  --surface-domain-finance-border: rgba(95, 150, 130, 0.12);
+  --surface-domain-risk: rgba(140, 110, 110, 0.05);
+  --surface-domain-risk-border: rgba(140, 110, 110, 0.14);
+
+  --lifeos-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --lifeos-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --lifeos-shadow-md: 0 8px 20px rgba(0, 0, 0, 0.22);
+  --lifeos-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.26);
+
+  --lifeos-shadow-surface-hero: 0 18px 56px rgba(0, 0, 0, 0.3);
+  --lifeos-shadow-surface-primary: 0 14px 40px rgba(0, 0, 0, 0.22);
+  --lifeos-shadow-surface-secondary: 0 6px 20px rgba(0, 0, 0, 0.14);
+
+  --surface-primary: var(--bg-card);
+  --surface-secondary: var(--bg-muted);
+  --surface-elevated: var(--bg-elevated);
+  --surface-inset: var(--bg-inset);
+  --bg-tertiary: var(--bg-muted);
+  --accent-primary: var(--accent);
+  --shadow-soft: var(--lifeos-shadow-sm);
+  --shadow-medium: var(--lifeos-shadow-md);
+  --shadow-strong: var(--lifeos-shadow-lg);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f4f6f8;
+  --bg-secondary: #eef1f4;
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-inset: #eef1f4;
+  --bg-muted: #f7f8fa;
+  --bg-hover: #eceff2;
+
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+
+  --accent: #5b6cff;
+  --accent-hover: #6d7cff;
+  --accent-foreground: #ffffff;
+  --accent-soft: rgba(91, 108, 255, 0.1);
+  --accent-soft-border: rgba(91, 108, 255, 0.13);
+
+  --semantic-energy: #6b7280;
+  --semantic-energy-hover: #5b616a;
+  --semantic-energy-foreground: #ffffff;
+  --semantic-energy-muted: rgba(107, 114, 128, 0.1);
+
+  --success: #0f766e;
+  --success-muted: #d1faf4;
+  --warning: #a16207;
+  --warning-muted: #fff7e6;
+  --danger: #b91c1c;
+  --danger-muted: #fee2e2;
+
+  --border-subtle: #e1e5ea;
+  --border-strong: #cdd2d9;
+
+  --nav-text: #5c6370;
+  --nav-overlay: rgba(15, 23, 42, 0.3);
+  --focus-ring: rgba(91, 108, 255, 0.24);
+
+  --status-risk: #b91c1c;
+  --status-risk-bg: #fef2f2;
+  --status-risk-border: #fecaca;
+  --status-healthy: #047857;
+  --status-healthy-bg: #ecfdf5;
+  --status-healthy-border: #a7f3d0;
+  --status-focus: #5b6cff;
+  --status-focus-bg: rgba(91, 108, 255, 0.08);
+  --status-focus-border: rgba(91, 108, 255, 0.16);
+  --status-neutral: #64748b;
+  --status-neutral-bg: #f1f5f9;
+  --status-neutral-border: #cbd5e1;
+
+  --surface-domain-ai: rgba(91, 108, 255, 0.04);
+  --surface-domain-ai-border: rgba(91, 108, 255, 0.1);
+  --surface-domain-finance: rgba(13, 148, 136, 0.04);
+  --surface-domain-finance-border: rgba(13, 148, 136, 0.12);
+  --surface-domain-risk: rgba(185, 28, 28, 0.04);
+  --surface-domain-risk-border: rgba(185, 28, 28, 0.12);
+
+  --lifeos-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.03);
+  --lifeos-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.035);
+  --lifeos-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.05), 0 2px 5px rgba(15, 23, 42, 0.03);
+  --lifeos-shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.055), 0 4px 8px rgba(15, 23, 42, 0.03);
+
+  --lifeos-shadow-surface-hero: 0 14px 36px rgba(15, 23, 42, 0.055);
+  --lifeos-shadow-surface-primary: 0 6px 20px rgba(15, 23, 42, 0.05), 0 2px 6px rgba(15, 23, 42, 0.03);
+  --lifeos-shadow-surface-secondary: 0 3px 10px rgba(15, 23, 42, 0.04);
+
+  --surface-primary: #ffffff;
+  --surface-secondary: #f7f8fa;
+  --surface-elevated: #ffffff;
+  --surface-inset: var(--bg-inset);
+  --bg-tertiary: var(--bg-muted);
+  --accent-primary: var(--accent);
+  --shadow-soft: var(--lifeos-shadow-sm);
+  --shadow-medium: var(--lifeos-shadow-md);
+  --shadow-strong: var(--lifeos-shadow-lg);
+}
+
+/**
+ * Control Center hero — very light accent wash; most weight stays on neutral surfaces.
+ */
+.dashboard-hero-shell {
+  background-color: var(--surface-primary);
+  background-image: radial-gradient(circle at top left, var(--accent-soft), transparent 48%);
+}
+
+/** Bottom fade layer — sits above wash (see `Surface` hero). */
+.dashboard-hero-fade {
+  z-index: 1;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--bg-primary) 22%, transparent),
+    transparent,
+    transparent
+  );
+}

@@ -1,18 +1,27 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "../styles/themes.css";
+@import "../styles/tokens.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 html,
 body {
-  background: #0b0d10;
-  color: #e5e5e5;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+html {
+  transition: background-color var(--lifeos-motion-theme, 250ms) ease, color var(--lifeos-motion-theme, 250ms) ease,
+    border-color var(--lifeos-motion-theme, 250ms) ease;
 }
 
 body {
-  @apply antialiased transition-colors duration-300;
+  @apply antialiased;
   margin: 0;
+  transition: background-color var(--lifeos-motion-theme, 250ms) ease, color var(--lifeos-motion-theme, 250ms) ease,
+    border-color var(--lifeos-motion-theme, 250ms) ease;
 }
 
 @layer base {
@@ -54,11 +63,22 @@ body {
     --sidebar-border: oklch(0.3 0.01 260);
     --sidebar-ring: oklch(0.75 0.08 73);
   }
-  * {
-    border-color: #2a2f36;
-    transition: all 0.2s ease;
-  }
   html {
     font-family: var(--font-sans), Inter, system-ui, sans-serif;
+  }
+
+  /** Native controls — soft indigo accent, not browser default red/blue */
+  html[data-theme="light"] input[type="radio"],
+  html[data-theme="dark"] input[type="radio"],
+  html[data-theme="light"] input[type="checkbox"],
+  html[data-theme="dark"] input[type="checkbox"] {
+    accent-color: var(--accent-primary);
+  }
+
+  /** Sonner — calm enter/leave (library toggles data attributes) */
+  [data-sonner-toaster] [data-sonner-toast] {
+    transition:
+      transform var(--lifeos-motion-slow, 260ms) var(--lifeos-motion-ease, cubic-bezier(0.25, 0.1, 0.25, 1)),
+      opacity var(--lifeos-motion-slow, 260ms) ease !important;
   }
 }

@@ -4,6 +4,7 @@ export { AUTOMATION_RULES } from "@/services/automation/rules";
 export { AUTOMATION_RULE_SETTING_CATALOG } from "@/services/automation/ruleSettingCatalog";
 export type {
   AutomationContext,
+  AutomationPositiveInsight,
   AutomationRiskSignal,
   AutomationRule,
   AutomationSink

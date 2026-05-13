@@ -15,7 +15,11 @@ export type NextActionRecommendation = {
   id: string;
   type: RecommendationCategory;
   priority: RecommendationPriority;
+  /** Optional 0–1 score from adaptive layer (higher = better historical fit). */
+  confidence?: number;
   message: string;
+  /** Plain-language reason this suggestion appeared (from automation / rules). */
+  explanation?: string;
   /** When this recommendation object was produced (ISO-8601). */
   generatedAt: string;
   /** Leading symbol for UI (emoji). */

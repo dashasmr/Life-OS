@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { API_URL, describeFetchFailure, type DailyReview } from "@/lib/api";
 import { formatDateFiNumeric, formatLocalDateTimeLong } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { cn } from "@/lib/utils";
+import { PageSectionSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
 async function errorMessageFromResponse(res: Response): Promise<string> {
@@ -39,17 +42,17 @@ function ReviewCard({
   busy: boolean;
 }) {
   return (
-    <article className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-4 md:p-5">
+    <article className={ds.surfaces.contentPanelCompact}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <button
           type="button"
           onClick={onToggle}
           className="min-w-0 flex-1 text-left"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8F98]">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-lifeos-fg-muted">
             {formatDateFiNumeric(review.date)}
           </p>
-          <h3 className="mt-1 text-lg font-semibold text-white">{review.title}</h3>
+          <h3 className="mt-1 text-lg font-semibold text-lifeos-fg">{review.title}</h3>
           {review.created_at && (
             <p className={`mt-1 text-xs ${ui.mutedText}`}>Saved {formatLocalDateTimeLong(review.created_at)}</p>
           )}
@@ -63,25 +66,25 @@ function ReviewCard({
             onRegenerate();
           }}
         >
-          {busy ? "Working…" : "Regenerate"}
+          {busy ? "Working…" : "Refresh"}
         </Button>
       </div>
 
       {expanded && (
-        <div className="mt-5 space-y-5 border-t border-[#2A2F36] pt-5">
-          <p className="text-sm leading-relaxed text-[#E5E5E5]">{review.summary}</p>
+        <div className="mt-5 space-y-5 border-t border-lifeos-border-subtle/15 pt-5">
+          <p className="text-sm leading-relaxed text-lifeos-fg-secondary">{review.summary}</p>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">Wins</h4>
-              <ul className="mt-2 space-y-1.5 text-sm text-[#b7e4c7]">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-lifeos-fg-muted">What went well</h4>
+              <ul className="mt-2 space-y-1.5 text-sm text-lifeos-success">
                 {review.wins.map((w, i) => (
                   <li key={`${review.date}-w-${i}`}>{w}</li>
                 ))}
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">Concerns</h4>
-              <ul className="mt-2 space-y-1.5 text-sm text-[#f3d59e]">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-lifeos-fg-muted">Needs attention</h4>
+              <ul className="mt-2 space-y-1.5 text-sm text-lifeos-warning">
                 {review.concerns.map((c, i) => (
                   <li key={`${review.date}-c-${i}`}>{c}</li>
                 ))}
@@ -89,8 +92,8 @@ function ReviewCard({
             </div>
           </div>
           <div>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">Tomorrow plan</h4>
-            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-[#E5E5E5]">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-lifeos-fg-muted">Tomorrow</h4>
+            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-lifeos-fg-secondary">
               {review.tomorrowPlan.map((t, i) => (
                 <li key={`${review.date}-t-${i}`}>{t}</li>
               ))}
@@ -153,18 +156,21 @@ export default function AiReviewHistoryPage() {
   return (
     <div className={ui.contentClass}>
       <section className={ui.panelClass}>
-        <h1 className="text-2xl font-semibold text-white">AI Review History</h1>
+        <h1 className="text-2xl font-semibold text-lifeos-fg">Review history</h1>
         <p className={ui.pageHint}>
-          One saved review per calendar day (server UTC, same as analytics). Generate from the dashboard or regenerate here
-          — duplicates are never created for the same date.
+          One note per calendar day (server UTC, same range as analytics). Refresh here or from the dashboard.
         </p>
 
-        {error && <p className="mt-4 text-sm text-[#f7b0a2]">{error}</p>}
-        {loading && <p className={`mt-6 text-sm ${ui.mutedText}`}>Loading history…</p>}
+        {error && <p className="mt-4 text-sm text-lifeos-danger">{error}</p>}
+        {loading && (
+          <div className="mt-6">
+            <PageSectionSkeleton />
+          </div>
+        )}
 
         {!loading && !error && items.length === 0 && (
-          <p className={`mt-6 rounded-lg border border-[#2A2F36] bg-[#141A22]/50 px-3 py-2 text-sm ${ui.mutedText}`}>
-            No reviews stored yet. Open Dashboard → Recommendations → <span className="text-[#c9d0d8]">Generate review</span>.
+          <p className={cn("mt-6", ds.surfaces.toneWell, "text-sm", ui.mutedText)}>
+            No reviews yet. Dashboard → Suggestions → <span className="text-lifeos-fg-secondary">Run review</span>.
           </p>
         )}
 

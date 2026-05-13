@@ -1,8 +1,9 @@
 """
 Server-side AI context: same role as `frontend/lib/ai/context-builder.ts`, but sourced from the DB.
 
-All calendar boundaries follow existing analytics: UTC midnight on `target_date` through next day
-(see `get_daily_summary` in crud).
+Daily snapshot boundaries still follow existing analytics (UTC midnight on `target_date` through next day;
+see `get_daily_summary` in crud). Behavior pattern bucketing uses the timezone on each pattern window's
+`range_start` (see `run_behavior_pattern_engine`) so client-built local ISO ranges stay consistent.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.crud import finance_totals_in_range, list_cleaning_zones, list_focus_sessions, list_tasks
 from app.models import Event, FinanceTransaction, Task
+from app.services.habits import run_habit_detection_engine
 from app.services.patterns import run_behavior_pattern_engine
 from app.services.risk_detection import run_risk_detection_engine
 
@@ -253,10 +255,12 @@ def build_daily_ai_context(db: Session, target_date: date) -> dict[str, Any]:
         rule_hints.append("Low execution signals today — consider one small win tomorrow morning.")
 
     pattern_from = day_start - timedelta(days=30)
-    behavior_patterns = run_behavior_pattern_engine(db, pattern_from, day_end)
+    behavior_patterns, behavior_patterns_insufficient = run_behavior_pattern_engine(db, pattern_from, day_end)
 
     risk_from = day_start - timedelta(days=13)
     risk_signals = run_risk_detection_engine(db, risk_from, day_end)
+
+    detected_habits = run_habit_detection_engine(db, lookback_days=45)
 
     return {
         "date": target_date.isoformat(),
@@ -276,8 +280,10 @@ def build_daily_ai_context(db: Session, target_date: date) -> dict[str, Any]:
             "balance_delta": fin_month["balance_delta"],
         },
         "behaviorPatterns": behavior_patterns,
+        "behaviorPatternsInsufficientHistory": behavior_patterns_insufficient,
         "riskSignals": risk_signals,
         "ruleBasedHints": rule_hints,
+        "detectedHabits": detected_habits,
     }
 
 
@@ -378,8 +384,10 @@ def build_monthly_ai_context(db: Session, month_start: datetime, month_end: date
     if month_stats["focusMinutes"] < 120:
         rule_hints.append("Focus minutes are light for a full month — consider protecting blocks.")
 
-    behavior_patterns = run_behavior_pattern_engine(db, month_start, month_end)
+    behavior_patterns, behavior_patterns_insufficient = run_behavior_pattern_engine(db, month_start, month_end)
     risk_signals = run_risk_detection_engine(db, month_start, month_end)
+
+    detected_habits = run_habit_detection_engine(db, lookback_days=56)
 
     return {
         "monthLabel": month_label,
@@ -400,6 +408,8 @@ def build_monthly_ai_context(db: Session, month_start: datetime, month_end: date
         "cleaningZonesOverdueCount": overdue_count,
         "currentHomeHealthPercent": _home_health_percent(zones),
         "behaviorPatterns": behavior_patterns,
+        "behaviorPatternsInsufficientHistory": behavior_patterns_insufficient,
         "riskSignals": risk_signals,
         "ruleBasedHints": rule_hints,
+        "detectedHabits": detected_habits,
     }

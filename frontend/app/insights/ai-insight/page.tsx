@@ -6,7 +6,13 @@ import { computeDailyStats } from "@/lib/analytics/fromEvents";
 import { normalizeAnalyticsEvents } from "@/lib/analytics/normalize";
 import { formatDateFiNumeric, getLocalDayRangeIso, localCalendarDayKeyFromDate } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { BodyText, LabelText, MutedText, PageTitle, SectionTitle } from "@/components/ui/typography";
+import { cn } from "@/lib/utils";
+import { useUserPreferencesEpoch } from "@/hooks/useUserPreferencesEpoch";
+import { getResolvedUserPreferences } from "@/services/preferences";
 import { Badge } from "@/components/ui/badge";
+import { WhyLine } from "@/components/explainability/WhyLine";
 import { generateRuleInsights, type RuleInsight } from "@/services/insights";
 
 function insightCategoryLabel(category: RuleInsight["category"]): string {
@@ -17,6 +23,7 @@ function insightCategoryLabel(category: RuleInsight["category"]): string {
 }
 
 export default function AiDailyInsightPage() {
+  const userPrefsEpoch = useUserPreferencesEpoch();
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [insight, setInsight] = useState<DailyInsight | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -87,59 +94,65 @@ export default function AiDailyInsightPage() {
         focusSessions,
         cleaningZones: zones,
         expensesTodayTotal: dailyStatsFromEvents.expensesTotal,
-        tasks
+        tasks,
+        dailySpendingLimitEur: getResolvedUserPreferences().dailySpendingLimit
       }),
-    [focusSessions, zones, dailyStatsFromEvents.expensesTotal, tasks]
+    [focusSessions, zones, dailyStatsFromEvents.expensesTotal, tasks, userPrefsEpoch]
   );
 
   return (
     <div className={ui.contentClass}>
-      {error && <p className="mb-4 text-[#f7b0a2]">{error}</p>}
+      {error && <p className="mb-4 text-lifeos-danger">{error}</p>}
 
-      <section className="rounded-2xl border border-[#2A2F36] bg-gradient-to-br from-[#11151A] to-[#0B0D10] p-5 md:p-7">
+      <section className={ds.surfaces.insightHero}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Badge
             variant="outline"
-            className="inline-flex h-9 items-center rounded-xl border-[#C6A36B] px-4 text-sm font-medium text-[#C6A36B]"
+            className="inline-flex h-9 items-center rounded-xl bg-lifeos-accent-soft px-4 text-sm font-medium text-lifeos-accent shadow-sm"
           >
-            AI Daily Insight
+            Daily insight
           </Badge>
-          <span className={`text-sm ${ui.mutedText}`}>
+          <span className={cn(ds.typography.bodySecondary, "text-lifeos-fg-muted")}>
             {summary?.date ? formatDateFiNumeric(summary.date) : "Today"}
           </span>
         </div>
-        <h1 className="mt-3 text-2xl font-semibold text-white md:text-3xl">{insight?.headline ?? "Light execution day"}</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-7 text-[#8A8F98] md:text-base">
+        <PageTitle className="mt-ds-4 max-w-[22ch] md:max-w-none">{insight?.headline ?? "Light execution day"}</PageTitle>
+        <MutedText className={cn("mt-ds-4", ds.typography.proseWideMax)}>
           {insight?.summary ?? "Loading insight..."}
-        </p>
+        </MutedText>
       </section>
 
-      <section className="mt-6 rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
+      <section className={cn("mt-6", ds.surfaces.contentPanelCompact)}>
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Rule-based signals</h2>
-            <p className={`mt-1 text-sm ${ui.mutedText}`}>Deeper nudges from your live data — same engine as before.</p>
+          <div className="space-y-ds-2">
+            <SectionTitle>From your data</SectionTitle>
+            <MutedText className={ds.typography.proseMax}>
+              Nudges from what you&apos;ve logged. Same logic as before.
+            </MutedText>
           </div>
         </div>
 
         {ruleInsights.length > 0 ? (
-          <ul className="mt-4 space-y-2.5">
+          <ul className="mt-ds-5 space-y-ds-3">
             {ruleInsights.map((item) => (
               <li key={item.id}>
-                <article className="rounded-xl border border-[#2A2F36] border-l-4 border-l-[#C6A36B] bg-[#0F1318] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">
+                <article className={ds.surfaces.accentCallout}>
+                  <LabelText as="p" className={cn(ds.typography.labelMicro, "text-lifeos-accent")}>
                     {insightCategoryLabel(item.category)}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[#E5E5E5]">{item.message}</p>
+                  </LabelText>
+                  <BodyText as="p" className={cn(ds.typography.bodySecondary, "mt-ds-3")}>
+                    {item.message}
+                  </BodyText>
+                  <WhyLine text={item.explanation ?? ""} />
                 </article>
               </li>
             ))}
           </ul>
         ) : (
-          <div className="mt-4 rounded-lg border border-[#2A2F36] bg-[#141A22]/60 px-3 py-2.5">
-            <p className={`text-sm ${ui.mutedText}`}>
-              <span className="font-medium text-[#c9d0d8]">All clear.</span> No rule-based alerts for current data.
-            </p>
+          <div className={cn("mt-ds-5", ds.surfaces.toneWell)}>
+            <BodyText as="p" className={ds.typography.bodySecondary}>
+              <span className="font-medium text-lifeos-fg">All clear.</span> No alerts for this data yet.
+            </BodyText>
           </div>
         )}
       </section>

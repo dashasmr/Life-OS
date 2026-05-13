@@ -58,6 +58,17 @@ def build_rule_based_daily_review(context: dict[str, Any]) -> dict[str, Any]:
             if msg and all(msg != str(w).strip() for w in wins):
                 wins.append(msg)
 
+    habits_ctx = context.get("detectedHabits") or []
+    if isinstance(habits_ctx, list):
+        for h in sorted(habits_ctx, key=lambda x: -float(x.get("confidence") or 0))[:4]:
+            if not isinstance(h, dict):
+                continue
+            if float(h.get("confidence") or 0) < 0.54:
+                continue
+            msg = str(h.get("message") or "").strip()
+            if msg and all(msg != str(w).strip() for w in wins):
+                wins.append(msg)
+
     concerns: list[str] = []
     rs = context.get("riskSignals") or []
     if isinstance(rs, list):
@@ -101,7 +112,9 @@ def build_openai_daily_review(context: dict[str, Any], api_key: str, model: str)
         "(productivity, home cleaning zones, finance aggregates, timeline highlights). "
         "The object may include behaviorPatterns: each item has id, category (focus|cleaning|finance), "
         "confidence (0-1), and message — these are rule-based behavioral analytics, not user prose. "
-        "When confidence is at least 0.5 you may reflect at most one such pattern in wins or concerns without contradicting it. "
+        "The object may include detectedHabits: automatically inferred routines from historical events "
+        "(id, category focus|cleaning|finance|productivity, confidence 0-1, frequency, message) — "
+        "when confidence is at least 0.55 you may reflect up to one habit line in wins if it matches the day. "
         "The object may include riskSignals: severity low|medium|high, category focus|finance|environment, message — "
         "treat medium/high as worth a concise concern when they fit the day's story; do not invent new risks. "
         "Answer from that data only — do not invent events. "

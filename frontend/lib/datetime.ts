@@ -2,6 +2,14 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+/**
+ * Calendar boundaries for Life OS analytics (today / week / month / rolling N days).
+ *
+ * Always derive user-facing ranges from these helpers so API query params (`from`/`to` ISO instants)
+ * match how the browser interprets “local midnight” and Monday-week starts. Pair with backend logic
+ * that buckets using the timezone carried on `range_start` for the same window.
+ */
+
 export function formatDateFiNumeric(value: string | Date): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "—";

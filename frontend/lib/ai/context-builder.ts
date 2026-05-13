@@ -12,6 +12,7 @@ import { localCalendarDayKeyFromDate } from "@/lib/datetime";
 import { generateNextActions } from "@/lib/recommendations";
 import { computeSystemStatus } from "@/lib/systemStatus";
 import { generateRuleInsights } from "@/services/insights";
+import { getResolvedUserPreferences } from "@/services/preferences";
 import { mapEventToTimelineCopy } from "@/lib/timeline/eventLabels";
 
 const PRIORITY_RANK: Record<TaskItem["priority"], number> = {
@@ -33,12 +34,14 @@ export type DailyAIContextRecommendation = {
   priority?: string;
   category?: string;
   message: string;
+  explanation?: string;
 };
 
 export type DailyAIContextRuleInsight = {
   id: string;
   category: string;
   message: string;
+  explanation?: string;
 };
 
 export type DailyAIContextTimelineLine = {
@@ -186,7 +189,8 @@ export function buildDailyAIContext(params: BuildDailyAIContextParams): DailyAIC
     id: a.id,
     priority: a.priority,
     category: a.type,
-    message: a.message
+    message: a.message,
+    explanation: a.explanation
   }));
 
   if (params.dailyInsight?.recommendations?.length) {
@@ -201,12 +205,14 @@ export function buildDailyAIContext(params: BuildDailyAIContextParams): DailyAIC
     cleaningZones: params.cleaningZones,
     expensesTodayTotal: dailyStats.expensesTotal,
     tasks: params.tasks,
-    now
+    now,
+    dailySpendingLimitEur: getResolvedUserPreferences().dailySpendingLimit
   });
   const insights: DailyAIContextRuleInsight[] = ruleRows.map((r) => ({
     id: r.id,
     category: r.category,
-    message: r.message
+    message: r.message,
+    explanation: r.explanation
   }));
 
   const timelineSummary = buildTimelineSummary(events, dayKey, timelineLimit);

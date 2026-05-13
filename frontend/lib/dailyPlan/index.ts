@@ -5,3 +5,9 @@ export {
   loadDailyPlanCompletedIds,
   saveDailyPlanCompletedIds
 } from "@/lib/dailyPlan/storage";
+export {
+  appendExtraDailyPlanItem,
+  extraItemsToPlanRows,
+  loadExtraDailyPlanItems,
+  type StoredExtraPlanItem
+} from "@/lib/dailyPlan/extraItems";

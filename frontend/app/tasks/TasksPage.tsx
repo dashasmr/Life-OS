@@ -1,11 +1,17 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { API_URL, TaskEnergyType, TaskItem, TaskPriority, TaskStatus } from "@/lib/api";
 import { ui } from "@/lib/ui";
+import { FormField } from "@/components/ui/FormField";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageSectionSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { sendWithOfflineQueue } from "@/services/offlineQueue";
+import { useLifeOsRealtimeEpoch } from "@/services/realtime";
 
 type TaskBoardFilter = "active" | TaskStatus;
 
@@ -20,8 +26,9 @@ function TasksPageContent() {
   const [taskDueDate, setTaskDueDate] = useState("");
   const [taskEnergyType, setTaskEnergyType] = useState<TaskEnergyType | "">("");
   const [error, setError] = useState<string | null>(null);
+  const realtimeEpoch = useLifeOsRealtimeEpoch();
 
-  async function loadTasks() {
+  const loadTasks = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/tasks?limit=100`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to fetch tasks");
@@ -30,11 +37,16 @@ function TasksPageContent() {
       setError("Cannot connect to API. Please check backend server.");
       toast.error("Cannot connect to API");
     }
-  }
+  }, []);
 
   useEffect(() => {
     loadTasks().catch((err: Error) => setError(err.message));
-  }, []);
+  }, [loadTasks]);
+
+  useEffect(() => {
+    if (realtimeEpoch === 0) return;
+    void loadTasks();
+  }, [realtimeEpoch, loadTasks]);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -59,17 +71,29 @@ function TasksPageContent() {
       return;
     }
     try {
-      const response = await fetch(`${API_URL}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: taskTitle.trim(),
-          priority: taskPriority,
-          due_date: taskDueDate || null,
-          energy_type: taskEnergyType || null
+      const body = {
+        title: taskTitle.trim(),
+        priority: taskPriority,
+        due_date: taskDueDate || null,
+        energy_type: taskEnergyType || null
+      };
+      const result = await sendWithOfflineQueue({ kind: "post_task", body }, () =>
+        fetch(`${API_URL}/tasks`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
         })
-      });
-      if (!response.ok) {
+      );
+      if (result.mode === "queued") {
+        toast.info("Pending sync", { description: "Task saved locally — will upload when online." });
+        setTaskTitle("");
+        setTaskPriority("medium");
+        setTaskDueDate("");
+        setTaskEnergyType("");
+        await loadTasks();
+        return;
+      }
+      if (!result.response.ok) {
         setError("Failed to create task");
         toast.error("Failed to create task");
         return;
@@ -89,12 +113,19 @@ function TasksPageContent() {
   async function updateTaskStatus(taskId: string, status: TaskStatus) {
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/tasks/${taskId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-      if (!response.ok) {
+      const result = await sendWithOfflineQueue({ kind: "patch_task_status", taskId, status }, () =>
+        fetch(`${API_URL}/tasks/${taskId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status })
+        })
+      );
+      if (result.mode === "queued") {
+        toast.info("Pending sync", { description: "Change saved locally — will sync when online." });
+        await loadTasks();
+        return;
+      }
+      if (!result.response.ok) {
         setError("Failed to update task status");
         toast.error("Failed to update task status");
         return;
@@ -127,11 +158,14 @@ function TasksPageContent() {
   };
 
   function energyBadgeClass(energy: TaskEnergyType | null): string {
-    if (!energy) return "border border-[#2A2F36] bg-[#171B21] text-[#8A8F98]";
-    if (energy === "high_focus") return "border border-[#4a6fa8] bg-[#1a2333] text-[#a8c4f0]";
-    if (energy === "low_energy") return "border border-[#5c6d5c] bg-[#1c221c] text-[#c5d4c5]";
-    if (energy === "creative") return "border border-[#7a5294] bg-[#231a2a] text-[#e0c4f0]";
-    return "border border-[#8a7349] bg-[#2a2418] text-[#f0d9a8]";
+    if (!energy) return "border border-lifeos-border bg-lifeos-muted text-lifeos-fg-muted";
+    if (energy === "high_focus")
+      return "border border-lifeos-status-focus-border bg-lifeos-status-focus-bg text-lifeos-status-focus";
+    if (energy === "low_energy")
+      return "border border-lifeos-status-healthy-border bg-lifeos-status-healthy-bg text-lifeos-status-healthy";
+    if (energy === "creative")
+      return "border border-lifeos-accent-soft-border bg-lifeos-accent-soft text-lifeos-accent";
+    return "border border-lifeos-border-subtle bg-lifeos-muted text-lifeos-fg-secondary";
   }
 
   const today = new Date();
@@ -162,9 +196,11 @@ function TasksPageContent() {
   };
 
   function priorityBadgeClass(priority: TaskPriority): string {
-    if (priority === "high") return "border border-[#7a2b2b] bg-[#2a1616] text-[#ffb3b3]";
-    if (priority === "medium") return "border border-[#6d572f] bg-[#2a2418] text-[#f3d59e]";
-    return "border border-[#2f4b3a] bg-[#17231c] text-[#b7e4c7]";
+    if (priority === "high")
+      return "border border-lifeos-status-risk-border bg-lifeos-status-risk-bg text-lifeos-status-risk";
+    if (priority === "medium")
+      return "border border-lifeos-warning-muted bg-lifeos-warning-muted/25 text-lifeos-warning";
+    return "border border-lifeos-status-healthy-border bg-lifeos-status-healthy-bg text-lifeos-status-healthy";
   }
 
   function getDueMeta(dueDate: string | null, status: TaskStatus): { label: string; className: string } | null {
@@ -175,12 +211,21 @@ function TasksPageContent() {
 
     const diffDays = Math.floor((dueStart.getTime() - todayStart.getTime()) / (24 * 60 * 60 * 1000));
     if (diffDays < 0 && status !== "done") {
-      return { label: `Overdue (${dueDate})`, className: "border border-[#7a2b2b] bg-[#2a1616] text-[#ffb3b3]" };
+      return {
+        label: `Overdue (${dueDate})`,
+        className: "border border-lifeos-status-risk-border bg-lifeos-status-risk-bg text-lifeos-status-risk"
+      };
     }
     if (diffDays === 0) {
-      return { label: `Due today (${dueDate})`, className: "border border-[#6d572f] bg-[#2a2418] text-[#f3d59e]" };
+      return {
+        label: `Due today (${dueDate})`,
+        className: "border border-lifeos-warning-muted bg-lifeos-warning-muted/25 text-lifeos-warning"
+      };
     }
-    return { label: `Due ${dueDate}`, className: "border border-[#2A2F36] bg-[#171B21] text-[#c9d0d8]" };
+    return {
+      label: `Due ${dueDate}`,
+      className: "border border-lifeos-border bg-lifeos-muted text-lifeos-fg-secondary"
+    };
   }
 
   return (
@@ -216,8 +261,8 @@ function TasksPageContent() {
             Done ({counters.done})
           </button>
         </div>
-        <details className="mt-3 rounded-xl border border-[#2A2F36] bg-[#11151A] px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-[#C6A36B]">Advanced filters: deadlines</summary>
+        <details className="mt-3 rounded-xl border border-lifeos-border bg-lifeos-card px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-lifeos-fg-secondary">Advanced filters: deadlines</summary>
           <div className="mt-3 flex flex-wrap gap-2">
             <button className={dueFilter === "all" ? ui.pillActive : ui.pill} onClick={() => setDueFilter("all")} type="button">
               All deadlines
@@ -236,36 +281,47 @@ function TasksPageContent() {
 
         <div className={ui.formCard}>
           <form onSubmit={onCreateTask} className={ui.formGrid}>
-            <div className="grid gap-2">
-              <label className={ui.formLabel}>Task title</label>
-              <input className={ui.inputClass} value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="Example: Ship Finance MVP" />
-            </div>
-            <div className="grid gap-2">
-              <label className={ui.formLabel}>Priority</label>
-              <select className={ui.inputClass} value={taskPriority} onChange={(e) => setTaskPriority(e.target.value as TaskPriority)}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <label className={ui.formLabel}>Due date (optional)</label>
-              <input className={ui.inputClass} type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <label className={ui.formLabel}>Energy type</label>
-              <select
-                className={ui.inputClass}
-                value={taskEnergyType}
-                onChange={(e) => setTaskEnergyType(e.target.value as TaskEnergyType | "")}
+            <FormField id="task-title" label="Title">
+              <Input
+                id="task-title"
+                value={taskTitle}
+                onChange={(e) => setTaskTitle(e.target.value)}
+                placeholder="Ship finance MVP"
+                autoComplete="off"
+              />
+            </FormField>
+            <FormField id="task-priority" label="Priority">
+              <Select value={taskPriority} onValueChange={(v) => setTaskPriority(v as TaskPriority)}>
+                <SelectTrigger id="task-priority" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField id="task-due" label="Due date" optional>
+              <Input id="task-due" type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
+            </FormField>
+            <FormField id="task-energy" label="Energy" optional>
+              <Select
+                value={taskEnergyType === "" ? "__none__" : taskEnergyType}
+                onValueChange={(v) => setTaskEnergyType(v === "__none__" ? "" : (v as TaskEnergyType))}
               >
-                <option value="">Not set</option>
-                <option value="high_focus">High focus</option>
-                <option value="low_energy">Low energy</option>
-                <option value="creative">Creative</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
+                <SelectTrigger id="task-energy" className="w-full">
+                  <SelectValue placeholder="Not set" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not set</SelectItem>
+                  <SelectItem value="high_focus">High focus</SelectItem>
+                  <SelectItem value="low_energy">Low energy</SelectItem>
+                  <SelectItem value="creative">Creative</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
             <div className="flex items-end justify-end md:col-span-2">
               <Button className={ui.primaryButton} type="submit">
                 Add task
@@ -274,7 +330,7 @@ function TasksPageContent() {
           </form>
         </div>
 
-        {error && <p className="mt-4 text-[#f7b0a2]">{error}</p>}
+        {error && <p className="mt-4 text-lifeos-danger">{error}</p>}
 
         <div className="mt-6 space-y-3">
           {filteredTasks.length === 0 && (
@@ -284,7 +340,7 @@ function TasksPageContent() {
             <article
               key={task.id}
               id={`task-row-${task.id}`}
-              className={`${ui.card} ${highlightId === task.id ? "ring-2 ring-[#C6A36B]/55 ring-offset-2 ring-offset-[#0B0D10]" : ""}`}
+              className={`${ui.card} ${highlightId === task.id ? "ring-2 ring-lifeos-accent/50 ring-offset-2 ring-offset-lifeos-page" : ""}`}
             >
             <p className={ui.cardTitle}>{task.title}</p>
             <p className={`text-sm ${ui.mutedText}`}>Status: {statusLabel[task.status]}</p>
@@ -307,21 +363,27 @@ function TasksPageContent() {
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
-                className="h-10 rounded-xl bg-[#C6A36B] px-5 text-sm font-medium text-black shadow-[0_4px_14px_rgba(198,163,107,0.2)] hover:-translate-y-px hover:bg-[#A8844F] active:translate-y-0"
+                className="h-10 rounded-xl"
+                variant="primary"
+                size="sm"
                 onClick={() => updateTaskStatus(task.id, "in_progress")}
                 type="button"
               >
                 Start
               </Button>
               <Button
-                className="h-10 rounded-xl bg-[#C6A36B] px-5 text-sm font-medium text-black shadow-[0_4px_14px_rgba(198,163,107,0.2)] hover:-translate-y-px hover:bg-[#A8844F] active:translate-y-0"
+                className="h-10 rounded-xl"
+                variant="primary"
+                size="sm"
                 onClick={() => updateTaskStatus(task.id, "done")}
                 type="button"
               >
                 Done
               </Button>
               <Button
-                className="h-10 rounded-xl border border-[#C6A36B] bg-transparent px-5 text-sm font-medium text-[#C6A36B] hover:bg-[#171B21] hover:text-[#E5E5E5]"
+                className="h-10 rounded-xl"
+                variant="secondary"
+                size="sm"
                 onClick={() => updateTaskStatus(task.id, "todo")}
                 type="button"
               >
@@ -341,7 +403,7 @@ export default function TasksPage() {
     <Suspense
       fallback={
         <div className={ui.contentClass}>
-          <p className={`text-sm ${ui.mutedText}`}>Loading tasks…</p>
+          <PageSectionSkeleton className="mt-4" />
         </div>
       }
     >

@@ -1,7 +1,8 @@
-import type { CleaningZone, FocusSession, TaskItem } from "@/lib/api";
+import type { AdaptiveContext, CleaningZone, FocusSession, TaskItem } from "@/lib/api";
 import type { Goal } from "@/lib/goals/types";
+import { applyAdaptiveRecommendations } from "@/lib/recommendations/adaptiveApply";
 import { runAutomationEngine } from "@/services/automation/engine";
-import type { AutomationContext, AutomationRiskSignal } from "@/services/automation/types";
+import type { AutomationContext, AutomationPositiveInsight, AutomationRiskSignal } from "@/services/automation/types";
 import type { NextActionRecommendation, RecommendationPriority } from "@/lib/recommendations/types";
 
 export type TodayAutomationStats = {
@@ -21,6 +22,8 @@ export type RecommendationsEngineInput = {
   goals?: Goal[] | null;
   /** Event-sourced KPIs for the local day; enables strong-day insight when present. */
   todayStats?: TodayAutomationStats | null;
+  /** Server-built tuning from recommendation feedback (GET /recommendations/adaptive-context). */
+  adaptiveContext?: AdaptiveContext | null;
   now?: Date;
 };
 
@@ -43,7 +46,10 @@ function toAutomationContext(input: RecommendationsEngineInput): AutomationConte
       title: g.title,
       status: g.status,
       period: g.period,
-      category: g.category
+      category: g.category,
+      currentValue: g.currentValue,
+      targetValue: g.targetValue,
+      unit: g.unit
     })),
     todayTasksCompleted: input.todayStats?.tasksCompleted,
     todayFocusMinutes: input.todayStats?.focusMinutes,
@@ -54,7 +60,7 @@ function toAutomationContext(input: RecommendationsEngineInput): AutomationConte
 export type RecommendationsAutomationResult = {
   recommendations: NextActionRecommendation[];
   automationRiskSignals: AutomationRiskSignal[];
-  positiveInsights: string[];
+  positiveInsights: AutomationPositiveInsight[];
 };
 
 /**
@@ -62,9 +68,11 @@ export type RecommendationsAutomationResult = {
  */
 export function runRecommendationsAutomation(input: RecommendationsEngineInput): RecommendationsAutomationResult {
   const sink = runAutomationEngine(toAutomationContext(input));
-  const recommendations = [...sink.recommendations].sort(
+  const now = input.now ?? new Date();
+  let recommendations = [...sink.recommendations].sort(
     (a, b) => PRIORITY_ORDER[b.priority] - PRIORITY_ORDER[a.priority]
   );
+  recommendations = applyAdaptiveRecommendations(recommendations, input.adaptiveContext ?? undefined, now);
   return {
     recommendations,
     automationRiskSignals: sink.automationRiskSignals,

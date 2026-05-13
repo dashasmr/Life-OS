@@ -98,3 +98,47 @@ export function computeSystemStatus(input: SystemStatusInput): SystemStatusPilla
     { key: "finance", title: "Finance", ...finance }
   ];
 }
+
+export type TodayStateRowKey = "mind" | "home" | "finance" | "energy";
+
+export type TodayStateRow = {
+  key: TodayStateRowKey;
+  title: string;
+  statusLabel: string;
+  tone: SystemStatusTone;
+};
+
+/**
+ * Physical / cognitive bandwidth proxy from today's focus minutes and completed tasks.
+ */
+export function computeEnergyStatus(
+  focusMinutesToday: number,
+  tasksCompletedToday: number
+): Pick<TodayStateRow, "statusLabel" | "tone"> {
+  const fm = Math.max(0, focusMinutesToday);
+  const tc = Math.max(0, tasksCompletedToday);
+  if (fm >= 50 || (fm >= 30 && tc >= 6)) {
+    return { statusLabel: "High", tone: "positive" };
+  }
+  if (fm >= 18 || tc >= 3) {
+    return { statusLabel: "Medium", tone: "neutral" };
+  }
+  if (fm >= 1 || tc >= 1) {
+    return { statusLabel: "Low", tone: "neutral" };
+  }
+  return { statusLabel: "Low", tone: "caution" };
+}
+
+/** Mind, home, finance from `computeSystemStatus`, plus energy from the same daily signals. */
+export function computeTodayState(
+  input: SystemStatusInput & { focusMinutesToday: number }
+): TodayStateRow[] {
+  const pillars = computeSystemStatus(input);
+  const energy = computeEnergyStatus(input.focusMinutesToday, input.tasksCompletedToday);
+  return [
+    { key: "mind", title: pillars[0].title, statusLabel: pillars[0].statusLabel, tone: pillars[0].tone },
+    { key: "home", title: pillars[1].title, statusLabel: pillars[1].statusLabel, tone: pillars[1].tone },
+    { key: "finance", title: pillars[2].title, statusLabel: pillars[2].statusLabel, tone: pillars[2].tone },
+    { key: "energy", title: "Energy", ...energy }
+  ];
+}

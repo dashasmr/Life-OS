@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL, describeFetchFailure, EventItem, EventType } from "@/lib/api";
 import { normalizeAnalyticsEvents } from "@/lib/analytics/normalize";
 import { EventDetailModal } from "@/components/EventDetailModal";
 import { formatTimeLocalHm } from "@/lib/datetime";
 import { formatEventTypeTitle } from "@/lib/eventDetail";
 import { ui } from "@/lib/ui";
+import { useLifeOsRealtimeEpoch } from "@/services/realtime";
 
 const EVENT_FILTERS: Array<{ id: "all" | EventType; label: string }> = [
   { id: "all", label: "All" },
@@ -125,19 +126,27 @@ export default function ActivityPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [detailEvent, setDetailEvent] = useState<EventItem | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const realtimeEpoch = useLifeOsRealtimeEpoch();
+
+  const loadEvents = useCallback(async () => {
+    const response = await fetch(`${API_URL}/events?limit=100`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Failed to fetch activity log");
+    const rawItems = (await response.json()) as Array<Omit<EventItem, "type"> & { type: string }>;
+    setEvents(normalizeAnalyticsEvents(rawItems));
+  }, []);
 
   useEffect(() => {
-    async function loadEvents() {
-      const response = await fetch(`${API_URL}/events?limit=100`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch activity log");
-      const rawItems = (await response.json()) as Array<Omit<EventItem, "type"> & { type: string }>;
-      setEvents(normalizeAnalyticsEvents(rawItems));
-    }
-
     loadEvents().catch((err: unknown) => {
       setError(describeFetchFailure(err));
     });
-  }, []);
+  }, [loadEvents]);
+
+  useEffect(() => {
+    if (realtimeEpoch === 0) return;
+    loadEvents().catch((err: unknown) => {
+      setError(describeFetchFailure(err));
+    });
+  }, [realtimeEpoch, loadEvents]);
 
   const filteredEvents = useMemo(() => {
     const now = Date.now();
@@ -192,7 +201,7 @@ export default function ActivityPage() {
     <div className={ui.contentClass}>
       <EventDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} />
       <section className={ui.panelClass}>
-        <h1 className="text-2xl font-semibold text-white">Activity log</h1>
+        <h1 className="text-2xl font-semibold text-lifeos-fg">Activity log</h1>
         <p className={ui.pageHint}>Clean history of important actions across Life OS.</p>
         <p className={ui.microHint}>Tip: use date filter first, then search</p>
 
@@ -219,8 +228,10 @@ export default function ActivityPage() {
           </div>
         </div>
 
-        <details className="mt-4 rounded-xl border border-[#2A2F36] bg-[#0F1318] px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-[#C6A36B]">Advanced filters: event type</summary>
+        <details className="mt-4 rounded-xl border border-lifeos-border bg-lifeos-card px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-lifeos-fg-secondary">
+            Advanced filters: event type
+          </summary>
           <div className="mt-3 flex flex-wrap gap-2">
             {EVENT_FILTERS.map((filter) => (
               <button
@@ -235,30 +246,30 @@ export default function ActivityPage() {
           </div>
         </details>
 
-        {error && <p className="mt-4 text-[#f7b0a2]">{error}</p>}
+        {error && <p className="mt-4 text-lifeos-danger">{error}</p>}
 
         <div className="mt-6 space-y-10">
           {groupedByDay.map(({ dayKey, items }) => (
             <section key={dayKey}>
-              <h2 className="border-b border-[#2A2F36] pb-2 text-lg font-semibold tracking-tight text-white">
+              <h2 className="border-b border-lifeos-border pb-2 text-lg font-semibold tracking-tight text-lifeos-fg">
                 {formatActivityDayHeading(dayKey)}
               </h2>
               <ul className="mt-4 space-y-6">
                 {items.map((item) => (
-                  <li key={item.id} className="border-b border-[#2A2F36]/80 pb-6 last:border-b-0 last:pb-0">
+                  <li key={item.id} className="border-b border-lifeos-border/80 pb-6 last:border-b-0 last:pb-0">
                     <button
                       type="button"
-                      className="w-full rounded-xl border border-transparent px-2 py-1 text-left transition hover:border-[#2A2F36] hover:bg-[#141A22]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C6A36B]/40"
+                      className="w-full rounded-xl border border-transparent px-2 py-1 text-left transition hover:border-lifeos-border hover:bg-lifeos-muted/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lifeos-accent/40 focus-visible:ring-offset-0"
                       onClick={() => setDetailEvent(item)}
                     >
-                      <p className="text-sm font-medium text-white">
-                        <span className="text-[#C6A36B]">•</span> {formatEventTypeTitle(item.type)}
+                      <p className="text-sm font-medium text-lifeos-fg">
+                        <span className="text-lifeos-accent">•</span> {formatEventTypeTitle(item.type)}
                       </p>
-                      <p className="mt-1 pl-4 text-sm tabular-nums text-[#8A8F98]">{formatTimeLocalHm(item.created_at)}</p>
-                      <div className="mt-2 space-y-1 pl-4 text-sm leading-relaxed text-[#c9d0d8]">
+                      <p className="mt-1 pl-4 text-sm tabular-nums text-lifeos-fg-muted">{formatTimeLocalHm(item.created_at)}</p>
+                      <div className="mt-2 space-y-1 pl-4 text-sm leading-relaxed text-lifeos-fg-secondary">
                         {eventDetails(item).map((detail) => (
                           <p key={`${item.id}-${detail.label}`}>
-                            <span className="text-[#8A8F98]">{detail.label}:</span> {detail.value}
+                            <span className="text-lifeos-fg-muted">{detail.label}:</span> {detail.value}
                           </p>
                         ))}
                       </div>
@@ -268,7 +279,18 @@ export default function ActivityPage() {
               </ul>
             </section>
           ))}
-          {!filteredEvents.length && <div className={ui.emptyState}>No activity for this filter yet.</div>}
+          {!filteredEvents.length && (
+            <div className={ui.emptyState}>
+              {events.length === 0 ? (
+                <>
+                  <p className="font-medium text-lifeos-fg-secondary">No activity in your log yet.</p>
+                  <p className="mt-2">Use tasks, focus, finance, and cleaning — events will show up here by day.</p>
+                </>
+              ) : (
+                <p>No activity for this filter yet.</p>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>

@@ -4,8 +4,19 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.database import settings
-from app.models import AIReview, CleaningZone, Event, FinanceTransaction, FocusSession, Goal, PomodoroSession, Task
+from app.models import (
+    AIReview,
+    CleaningZone,
+    Event,
+    FinanceTransaction,
+    FocusSession,
+    Goal,
+    PomodoroSession,
+    RecommendationFeedback,
+    Task,
+)
 from app.services.insights import build_daily_insight
+from app.services.realtime import publish_app_update
 from app.schemas import (
     CleaningZoneCreate,
     EventCreate,
@@ -23,6 +34,7 @@ def create_event(db: Session, data: EventCreate) -> Event:
     db.add(event)
     db.commit()
     db.refresh(event)
+    publish_app_update("event_created", event_type=data.type)
     return event
 
 
@@ -44,6 +56,7 @@ def create_task(db: Session, data: TaskCreate) -> Task:
     db.add(task)
     db.commit()
     db.refresh(task)
+    publish_app_update("task_created")
     return task
 
 
@@ -77,6 +90,7 @@ def update_task_status(db: Session, task_id: str, status: TaskStatus) -> Task | 
 
     db.commit()
     db.refresh(task)
+    publish_app_update("task_status_updated", status=status)
     return task
 
 
@@ -150,6 +164,7 @@ def create_finance_transaction(db: Session, data: FinanceTransactionCreate) -> F
 
     db.commit()
     db.refresh(transaction)
+    publish_app_update("finance_transaction_created", kind=data.kind)
     return transaction
 
 
@@ -203,6 +218,7 @@ def create_cleaning_zone(db: Session, data: CleaningZoneCreate) -> CleaningZone:
     db.add(zone)
     db.commit()
     db.refresh(zone)
+    publish_app_update("cleaning_zone_created")
     return zone
 
 
@@ -237,6 +253,7 @@ def mark_cleaning_done(db: Session, zone_id: str, cleaned_at: datetime | None = 
     )
     db.commit()
     db.refresh(zone)
+    publish_app_update("cleaning_done")
     return {
         "id": zone.id,
         "name": zone.name,
@@ -266,6 +283,7 @@ def start_focus_session(db: Session, data: FocusSessionCreate) -> FocusSession:
     )
     db.commit()
     db.refresh(session)
+    publish_app_update("focus_session_started")
     return session
 
 
@@ -303,6 +321,7 @@ def stop_focus_session(db: Session, session_id: str) -> FocusSession | None:
     )
     db.commit()
     db.refresh(session)
+    publish_app_update("focus_session_stopped")
     return session
 
 
@@ -342,6 +361,7 @@ def start_pomodoro_session(db: Session, data: PomodoroSessionCreate) -> Pomodoro
     db.add(session)
     db.commit()
     db.refresh(session)
+    publish_app_update("pomodoro_started")
     return session
 
 
@@ -371,6 +391,7 @@ def complete_pomodoro_session(db: Session, session_id: str) -> PomodoroSession |
     )
     db.commit()
     db.refresh(session)
+    publish_app_update("pomodoro_completed")
     return session
 
 
@@ -413,6 +434,7 @@ def upsert_ai_review(
         existing.fallback = fallback
         db.commit()
         db.refresh(existing)
+        publish_app_update("ai_review_upserted", review_date=review_date.isoformat())
         return existing
     row = AIReview(
         review_date=review_date,
@@ -426,6 +448,7 @@ def upsert_ai_review(
     db.add(row)
     db.commit()
     db.refresh(row)
+    publish_app_update("ai_review_created", review_date=review_date.isoformat())
     return row
 
 
@@ -448,6 +471,7 @@ def create_goal(
     db.add(row)
     db.commit()
     db.refresh(row)
+    publish_app_update("goal_created")
     return row
 
 
@@ -462,4 +486,33 @@ def delete_goal(db: Session, goal_id: str) -> bool:
         return False
     db.delete(row)
     db.commit()
+    publish_app_update("goal_deleted")
     return True
+
+
+def create_recommendation_feedback(
+    db: Session,
+    *,
+    recommendation_id: str,
+    outcome: str,
+    local_hour: int | None,
+) -> RecommendationFeedback:
+    row = RecommendationFeedback(
+        recommendation_id=recommendation_id.strip()[:128],
+        outcome=outcome,
+        local_hour=local_hour,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    publish_app_update("recommendation_feedback_created")
+    return row
+
+
+def list_recommendation_feedback_since(db: Session, since: datetime) -> list[RecommendationFeedback]:
+    stmt = (
+        select(RecommendationFeedback)
+        .where(RecommendationFeedback.created_at >= since)
+        .order_by(RecommendationFeedback.created_at.asc())
+    )
+    return list(db.execute(stmt).scalars().all())

@@ -6,5 +6,7 @@ export type RiskSignal = {
   severity: RiskSeverity;
   category: RiskCategory;
   message: string;
+  /** Why this signal fired (from backend detectors). */
+  explanation?: string;
   detectedAt: string;
 };

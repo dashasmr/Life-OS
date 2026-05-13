@@ -7,6 +7,10 @@ import { normalizeAnalyticsEvents } from "@/lib/analytics/normalize";
 import { computeHomeHealthScore } from "@/lib/cleaningHealth";
 import { getLocalWeekRangeIso } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { cn } from "@/lib/utils";
+import { PageSectionSkeleton } from "@/components/ui/skeleton";
+import { PageTitle } from "@/components/ui/typography";
 import { generateWeeklyInsights, topExpenseCategoryInWeek } from "@/lib/weeklyReviewInsights";
 
 function formatEur(value: number): string {
@@ -123,107 +127,119 @@ export default function WeeklyReviewPage() {
 
   return (
     <div className={ui.contentClass}>
-      <section className={ui.panelClass}>
-        <h1 className="text-2xl font-semibold text-white">Weekly review</h1>
-        <p className={ui.pageHint}>How did this week go? Numbers use your local week (Mon–Sun).</p>
-        <p className={`mt-1 text-sm ${ui.mutedText}`}>{weekLabel(from, to)}</p>
+      <section className={cn(ui.panelClass, "space-y-ds-4")}>
+        <div>
+          <PageTitle className="text-lifeos-section md:text-lifeos-card-title">Weekly review</PageTitle>
+          <p className={cn(ui.pageHint, "mt-ds-2")}>How did this week go? Numbers use your local week (Mon–Sun).</p>
+          <p className={`mt-ds-1 text-sm ${ui.mutedText}`}>{weekLabel(from, to)}</p>
+        </div>
 
-        {loading && <p className={`mt-6 text-sm ${ui.mutedText}`}>Loading your week…</p>}
-        {error && <p className="mt-6 text-[#f7b0a2]">{error}</p>}
+        {loading && (
+          <div className="mt-ds-2">
+            <PageSectionSkeleton />
+          </div>
+        )}
+        {error && <p className="text-sm text-lifeos-danger">{error}</p>}
 
         {!loading && !error && (
-          <div className="mt-8 space-y-8">
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Productivity summary</h2>
-              <p className={`mt-1 text-sm ${ui.mutedText}`}>
-                Weekly productivity score (events-based):{" "}
-                <span className="font-semibold tabular-nums text-[#C6A36B]">{productivityScore.score}</span>
-                <span className={ui.mutedText}>
-                  {" "}
-                  (tasks + focus minutes − overdue zones: {productivityScore.completedTasks} +{" "}
-                  {productivityScore.focusMinutes} − {productivityScore.overdueCleaningZones})
-                </span>
-              </p>
-              <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Tasks completed this week</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{productivity.tasksDone}</dd>
+          <div className="space-y-ds-5">
+            <section className={cn(ds.surfaces.contentPanelCompact, "space-y-ds-5")}>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-ds-4 gap-y-ds-2 border-b border-lifeos-border-subtle/[0.08] pb-ds-4">
+                <h2 className="text-base font-semibold text-lifeos-fg">Week at a glance</h2>
+                <p className={`max-w-prose text-sm ${ui.mutedText}`}>
+                  Score{" "}
+                  <span className="font-semibold tabular-nums text-lifeos-accent">{productivityScore.score}</span>
+                  <span className={ui.mutedText}>
+                    {" "}
+                    — tasks + focus min − overdue: {productivityScore.completedTasks} + {productivityScore.focusMinutes} −{" "}
+                    {productivityScore.overdueCleaningZones}
+                  </span>
+                </p>
+              </div>
+
+              <div className="grid gap-ds-5 lg:grid-cols-3">
+                <div className="min-w-0 space-y-ds-3">
+                  <h3 className={ds.typography.sectionEyebrow}>Productivity</h3>
+                  <dl className="grid grid-cols-3 gap-ds-3 sm:gap-ds-4">
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Tasks</dt>
+                      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-lifeos-fg md:text-xl">{productivity.tasksDone}</dd>
+                    </div>
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Focus min</dt>
+                      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-lifeos-fg md:text-xl">{productivity.focusMin}</dd>
+                    </div>
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Pomos</dt>
+                      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-lifeos-fg md:text-xl">{productivity.pomos}</dd>
+                    </div>
+                  </dl>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Focus minutes this week</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{productivity.focusMin}</dd>
+
+                <div className="min-w-0 space-y-ds-3 lg:border-l lg:border-lifeos-border-subtle/[0.08] lg:pl-ds-5">
+                  <h3 className={ds.typography.sectionEyebrow}>Cleaning</h3>
+                  <dl className="grid gap-ds-3">
+                    <div className="flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <dt className={`text-xs ${ui.mutedText}`}>Zones cleaned</dt>
+                        <dd className="mt-0.5 text-lg font-semibold tabular-nums text-lifeos-fg md:text-xl">{cleaning.cleaned}</dd>
+                      </div>
+                      <div className="text-right">
+                        <dt className={`text-xs ${ui.mutedText}`}>Overdue</dt>
+                        <dd className="mt-0.5 text-lg font-semibold tabular-nums text-lifeos-fg md:text-xl">{cleaning.overdueCount}</dd>
+                      </div>
+                    </div>
+                    {cleaning.overdueNames.length > 0 && (
+                      <p className={`text-xs leading-snug ${ui.mutedText}`}>{cleaning.overdueNames.join(", ")}</p>
+                    )}
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Home health</dt>
+                      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-lifeos-fg md:text-xl">
+                        {cleaning.health ? `${cleaning.health.scorePercent}%` : "—"}
+                      </dd>
+                      {cleaning.health && <p className={`mt-0.5 text-xs ${ui.mutedText}`}>{cleaning.health.statusLabel}</p>}
+                      {!cleaning.health && zones.length === 0 && (
+                        <p className={`mt-0.5 text-xs ${ui.mutedText}`}>Add zones on Cleaning to see a score.</p>
+                      )}
+                    </div>
+                  </dl>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Pomodoros completed</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{productivity.pomos}</dd>
+
+                <div className="min-w-0 space-y-ds-3 lg:border-l lg:border-lifeos-border-subtle/[0.08] lg:pl-ds-5">
+                  <h3 className={ds.typography.sectionEyebrow}>Finance</h3>
+                  <dl className="grid grid-cols-2 gap-x-ds-3 gap-y-ds-2">
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Income</dt>
+                      <dd className="mt-0.5 text-base font-semibold tabular-nums text-lifeos-fg">{formatEur(financeBlock.income)}</dd>
+                    </div>
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Expense</dt>
+                      <dd className="mt-0.5 text-base font-semibold tabular-nums text-lifeos-fg">{formatEur(financeBlock.expense)}</dd>
+                    </div>
+                    <div>
+                      <dt className={`text-xs ${ui.mutedText}`}>Balance</dt>
+                      <dd className="mt-0.5 text-base font-semibold tabular-nums text-lifeos-fg">{formatEur(financeBlock.balance)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className={`text-xs ${ui.mutedText}`}>Top category</dt>
+                      <dd className="mt-0.5 truncate text-base font-semibold text-lifeos-fg">{financeBlock.topCategory ?? "—"}</dd>
+                      {financeBlock.topCategory && (
+                        <p className={`text-xs tabular-nums ${ui.mutedText}`}>{formatEur(financeBlock.topAmount)}</p>
+                      )}
+                    </div>
+                  </dl>
                 </div>
-              </dl>
+              </div>
             </section>
 
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Cleaning summary</h2>
-              <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Zones cleaned this week</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{cleaning.cleaned}</dd>
-                </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Current overdue zones</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{cleaning.overdueCount}</dd>
-                  {cleaning.overdueNames.length > 0 && (
-                    <p className={`mt-2 text-sm ${ui.mutedText}`}>{cleaning.overdueNames.join(", ")}</p>
-                  )}
-                </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Home health score</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">
-                    {cleaning.health ? `${cleaning.health.scorePercent}%` : "—"}
-                  </dd>
-                  {cleaning.health && (
-                    <p className={`mt-2 text-sm ${ui.mutedText}`}>Status: {cleaning.health.statusLabel}</p>
-                  )}
-                  {!cleaning.health && zones.length === 0 && (
-                    <p className={`mt-2 text-sm ${ui.mutedText}`}>Add zones on the Cleaning page to see a score.</p>
-                  )}
-                </div>
-              </dl>
-            </section>
-
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Finance summary</h2>
-              <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Income this week</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-white">{formatEur(financeBlock.income)}</dd>
-                </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Expenses this week</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-white">{formatEur(financeBlock.expense)}</dd>
-                </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Balance this week</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-white">{formatEur(financeBlock.balance)}</dd>
-                </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Top spending category</dt>
-                  <dd className="mt-1 text-lg font-semibold text-white">
-                    {financeBlock.topCategory ?? "—"}
-                  </dd>
-                  {financeBlock.topCategory && (
-                    <p className={`mt-1 text-sm tabular-nums ${ui.mutedText}`}>{formatEur(financeBlock.topAmount)}</p>
-                  )}
-                </div>
-              </dl>
-            </section>
-
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Weekly insights</h2>
-              <p className={`mt-1 text-sm ${ui.mutedText}`}>Rule-based signals from this week&apos;s data.</p>
-              <ul className="mt-4 space-y-3">
+            <section className={ds.surfaces.contentPanelCompact}>
+              <h2 className="text-base font-semibold text-lifeos-fg">Weekly insights</h2>
+              <p className={`mt-ds-1 text-sm ${ui.mutedText}`}>From what you logged this week.</p>
+              <ul className="mt-ds-3 space-y-ds-2">
                 {insights.map((line) => (
                   <li
                     key={line}
-                    className="rounded-xl border border-l-4 border-[#2A2F36] border-l-[#C6A36B] bg-[#141A22] px-4 py-3 text-sm leading-relaxed text-[#E5E5E5]"
+                    className="rounded-ds-input bg-lifeos-muted/30 py-ds-2.5 pl-ds-3 pr-ds-3 text-sm leading-relaxed text-lifeos-fg-secondary shadow-inner [box-shadow:inset_3px_0_0_0_rgba(91,108,255,0.35)]"
                   >
                     {line}
                   </li>

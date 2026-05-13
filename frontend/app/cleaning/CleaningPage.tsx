@@ -3,11 +3,18 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { API_URL, CleaningZone } from "@/lib/api";
 import { computeHomeHealthScore } from "@/lib/cleaningHealth";
+import { useUserPreferencesEpoch } from "@/hooks/useUserPreferencesEpoch";
+import { getResolvedUserPreferences } from "@/services/preferences";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { FormField } from "@/components/ui/FormField";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { sendWithOfflineQueue } from "@/services/offlineQueue";
 
 export default function CleaningPage() {
+  const userPrefsEpoch = useUserPreferencesEpoch();
   const [zones, setZones] = useState<CleaningZone[]>([]);
   const [name, setName] = useState("");
   const [frequencyDays, setFrequencyDays] = useState("7");
@@ -15,12 +22,21 @@ export default function CleaningPage() {
 
   function cleaningStatusBadge(status: CleaningZone["status"]): { label: string; className: string } {
     if (status === "ok") {
-      return { label: "OK", className: "border border-[#2f4b3a] bg-[#17231c] text-[#b7e4c7]" };
+      return {
+        label: "OK",
+        className: "border border-lifeos-status-healthy-border bg-lifeos-status-healthy-bg text-lifeos-status-healthy"
+      };
     }
     if (status === "soon") {
-      return { label: "Soon", className: "border border-[#6d572f] bg-[#2a2418] text-[#f3d59e]" };
+      return {
+        label: "Soon",
+        className: "border border-lifeos-warning-muted bg-lifeos-warning-muted/25 text-lifeos-warning"
+      };
     }
-    return { label: "Overdue", className: "border border-[#7a2b2b] bg-[#2a1616] text-[#ffb3b3]" };
+    return {
+      label: "Overdue",
+      className: "border border-lifeos-status-risk-border bg-lifeos-status-risk-bg text-lifeos-status-risk"
+    };
   }
 
   async function loadZones() {
@@ -33,12 +49,16 @@ export default function CleaningPage() {
     loadZones().catch((err: Error) => setError(err.message));
   }, []);
 
+  useEffect(() => {
+    setFrequencyDays(String(getResolvedUserPreferences().defaultCleaningFrequencyDays));
+  }, [userPrefsEpoch]);
+
   const homeHealth = useMemo(() => computeHomeHealthScore(zones), [zones]);
 
   function healthStatusClass(level: NonNullable<typeof homeHealth>["level"]): string {
-    if (level === "healthy") return "text-[#b7e4c7]";
-    if (level === "needs_attention") return "text-[#f3d59e]";
-    return "text-[#ffb3b3]";
+    if (level === "healthy") return "text-lifeos-status-healthy";
+    if (level === "needs_attention") return "text-lifeos-warning";
+    return "text-lifeos-status-risk";
   }
 
   async function onCreateZone(event: FormEvent<HTMLFormElement>) {
@@ -66,25 +86,37 @@ export default function CleaningPage() {
       return;
     }
     setName("");
-    setFrequencyDays("7");
+    setFrequencyDays(String(getResolvedUserPreferences().defaultCleaningFrequencyDays));
     toast.success("Zone added");
     await loadZones();
   }
 
   async function markDone(zoneId: string) {
     setError(null);
-    const response = await fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})
-    });
-    if (!response.ok) {
-      setError("Failed to mark cleaning as done");
-      toast.error("Failed to mark cleaning as done");
-      return;
+    try {
+      const result = await sendWithOfflineQueue({ kind: "cleaning_done", zoneId }, () =>
+        fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        })
+      );
+      if (result.mode === "queued") {
+        toast.info("Pending sync", { description: "Cleaning logged locally — will sync when online." });
+        await loadZones();
+        return;
+      }
+      if (!result.response.ok) {
+        setError("Failed to mark cleaning as done");
+        toast.error("Failed to mark cleaning as done");
+        return;
+      }
+      toast.success("Marked as cleaned");
+      await loadZones();
+    } catch {
+      setError("Cannot reach API.");
+      toast.error("Cannot reach API");
     }
-    toast.success("Marked as cleaned");
-    await loadZones();
   }
 
   return (
@@ -102,18 +134,18 @@ export default function CleaningPage() {
           <p className={ui.microHint}>Tip: mark zone right after cleaning</p>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-          <h2 className="text-lg font-semibold text-white">Home health score</h2>
+        <div className={`mt-6 ${ds.surfaces.contentPanel}`}>
+          <h2 className="text-lg font-semibold text-lifeos-fg">Home health score</h2>
           {homeHealth ? (
             <div className="mt-4">
-              <p className="text-4xl font-semibold tabular-nums text-white">{homeHealth.scorePercent}%</p>
+              <p className="text-4xl font-semibold tabular-nums text-lifeos-fg">{homeHealth.scorePercent}%</p>
               <p className={`mt-2 text-sm font-medium ${healthStatusClass(homeHealth.level)}`}>
                 Status: {homeHealth.statusLabel}
               </p>
             </div>
           ) : (
-            <div className="mt-4 rounded-xl border border-[#2A2F36] bg-[#141A22] px-5 py-8 text-center">
-              <p className="text-lg font-medium text-white">No zones yet</p>
+            <div className="mt-4 rounded-xl border border-lifeos-border bg-lifeos-muted px-5 py-8 text-center">
+              <p className="text-lg font-medium text-lifeos-fg">No zones yet</p>
               <p className={`mt-2 text-sm ${ui.mutedText}`}>
                 Add a cleaning zone below to see how your home is doing overall.
               </p>
@@ -123,14 +155,19 @@ export default function CleaningPage() {
 
       <div className={ui.formCard}>
         <form onSubmit={onCreateZone} className={ui.formGrid}>
-          <div className="grid gap-2">
-            <label className={ui.formLabel}>Zone name</label>
-            <input className={ui.inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Desk, Kitchen, Bathroom..." />
-          </div>
-          <div className="grid gap-2">
-            <label className={ui.formLabel}>Frequency (days)</label>
-            <input className={ui.inputClass} value={frequencyDays} onChange={(e) => setFrequencyDays(e.target.value)} placeholder="7" />
-          </div>
+          <FormField id="zone-name" label="Zone name">
+            <Input id="zone-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Kitchen" autoComplete="off" />
+          </FormField>
+          <FormField id="zone-frequency" label="Every (days)">
+            <Input
+              id="zone-frequency"
+              className="tabular-nums"
+              value={frequencyDays}
+              onChange={(e) => setFrequencyDays(e.target.value)}
+              placeholder="7"
+              inputMode="numeric"
+            />
+          </FormField>
           <div className="flex justify-end md:col-span-2">
             <Button className={ui.primaryButton} type="submit">
               Add zone
@@ -139,7 +176,7 @@ export default function CleaningPage() {
         </form>
         </div>
 
-      {error && <p className="mt-4 text-[#f7b0a2]">{error}</p>}
+      {error && <p className="mt-4 text-lifeos-danger">{error}</p>}
 
         <div className="mt-6 space-y-3">
           {zones.length === 0 && <div className={ui.emptyState}>No cleaning zones yet. Add your first zone above.</div>}

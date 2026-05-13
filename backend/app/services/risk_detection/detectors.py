@@ -16,6 +16,7 @@ def _sig(
     severity: Severity,
     category: RiskCategory,
     message: str,
+    explanation: str,
     detected_at: str,
 ) -> dict[str, Any]:
     return {
@@ -23,6 +24,7 @@ def _sig(
         "severity": severity,
         "category": category,
         "message": message,
+        "explanation": explanation,
         "detectedAt": detected_at,
     }
 
@@ -77,6 +79,10 @@ def detect_burnout_risk(
         severity=sev,
         category="focus",
         message="Burnout risk increasing.",
+        explanation=(
+            "Seven-day task volume and shallow focus time crossed burnout heuristics (many completions "
+            "with relatively low focus minutes, few Pomodoros, or a sharp drop in completions vs earlier this week)."
+        ),
         detected_at=detected_at,
     )
 
@@ -98,6 +104,9 @@ def detect_environment_decline_risk(
         severity=sev,
         category="environment",
         message="Your environment state is declining.",
+        explanation=(
+            f"{overdue_zone_count} cleaning zones are overdue — several missed cadences suggest home upkeep is slipping."
+        ),
         detected_at=detected_at,
     )
 
@@ -122,6 +131,9 @@ def detect_productivity_focus_drop_risk(
                 severity="high",
                 category="focus",
                 message="Focus consistency is decreasing.",
+                explanation=(
+                    "Focus minutes fell on four consecutive days versus earlier highs — streak dropped sharply vs recent peak."
+                ),
                 detected_at=detected_at,
             )
 
@@ -134,6 +146,9 @@ def detect_productivity_focus_drop_risk(
                 severity="medium",
                 category="focus",
                 message="Focus consistency is decreasing.",
+                explanation=(
+                    "Recent daily focus averages are much lower than the prior three-day average while baseline focus was healthy."
+                ),
                 detected_at=detected_at,
             )
 
@@ -155,6 +170,10 @@ def detect_financial_drift_risk(
                 severity="medium",
                 category="finance",
                 message="Spending trend increasing this week.",
+                explanation=(
+                    f"No expenses were recorded in the prior comparable window, but this week totals ~€{expense_last7:.0f} "
+                    "— absolute spend is high enough to flag drift."
+                ),
                 detected_at=detected_at,
             )
         return None
@@ -175,5 +194,9 @@ def detect_financial_drift_risk(
         severity=sev,
         category="finance",
         message="Spending trend increasing this week.",
+        explanation=(
+            f"This week’s expenses (~€{expense_last7:.0f}) are substantially higher than the prior week (~€{expense_prev7:.0f}), "
+            "crossing the configured ratio threshold."
+        ),
         detected_at=detected_at,
     )

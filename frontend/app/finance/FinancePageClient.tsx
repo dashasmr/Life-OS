@@ -1,13 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { API_URL, FinanceKind, FinanceRangeSummary, FinanceTransaction } from "@/lib/api";
 import { formatEurPlain } from "@/lib/commandCenter";
 import { getLocalMonthRangeIso } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { FormField } from "@/components/ui/FormField";
+import { BodyText, MetricLabel, MetricValue, MutedText, PageTitle } from "@/components/ui/typography";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
+import { sendWithOfflineQueue } from "@/services/offlineQueue";
+import { useLifeOsRealtimeEpoch } from "@/services/realtime";
 
 export type FinanceTabVariant = "full" | "dashboard" | "transactions";
 
@@ -19,14 +26,15 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [monthTotals, setMonthTotals] = useState<FinanceRangeSummary | null>(null);
+  const realtimeEpoch = useLifeOsRealtimeEpoch();
 
-  async function loadTransactions() {
+  const loadTransactions = useCallback(async () => {
     const response = await fetch(`${API_URL}/finance/transactions?limit=80`, { cache: "no-store" });
     if (!response.ok) throw new Error("Failed to fetch finance transactions");
     setTransactions(await response.json());
-  }
+  }, []);
 
-  async function loadMonthTotals() {
+  const loadMonthTotals = useCallback(async () => {
     const { from, to } = getLocalMonthRangeIso();
     const response = await fetch(
       `${API_URL}/finance/summary/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
@@ -34,7 +42,7 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
     );
     if (!response.ok) throw new Error("Failed to fetch monthly finance summary");
     setMonthTotals(await response.json());
-  }
+  }, []);
 
   useEffect(() => {
     const loaders =
@@ -44,7 +52,18 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
           ? [loadTransactions()]
           : [loadTransactions(), loadMonthTotals()];
     Promise.all(loaders).catch((err: Error) => setError(err.message));
-  }, [variant]);
+  }, [variant, loadTransactions, loadMonthTotals]);
+
+  useEffect(() => {
+    if (realtimeEpoch === 0) return;
+    const loaders =
+      variant === "dashboard"
+        ? [loadMonthTotals()]
+        : variant === "transactions"
+          ? [loadTransactions()]
+          : [loadTransactions(), loadMonthTotals()];
+    Promise.all(loaders).catch((err: Error) => setError(err.message));
+  }, [realtimeEpoch, variant, loadTransactions, loadMonthTotals]);
 
   async function onCreateTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,17 +80,28 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
       return;
     }
     try {
-      const response = await fetch(`${API_URL}/finance/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind,
-          amount: parsedAmount,
-          category: category.trim(),
-          note: note.trim() || null
+      const txBody = {
+        kind,
+        amount: parsedAmount,
+        category: category.trim(),
+        note: note.trim() || null
+      };
+      const result = await sendWithOfflineQueue({ kind: "post_finance_transaction", body: txBody }, () =>
+        fetch(`${API_URL}/finance/transactions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(txBody)
         })
-      });
-      if (!response.ok) {
+      );
+      if (result.mode === "queued") {
+        toast.info("Pending sync", { description: "Transaction saved locally — will upload when online." });
+        setAmount("");
+        setCategory("");
+        setNote("");
+        await Promise.all([loadTransactions(), loadMonthTotals()]);
+        return;
+      }
+      if (!result.response.ok) {
         setError("Failed to create finance transaction");
         toast.error("Failed to create transaction");
         return;
@@ -88,102 +118,133 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
   }
 
   const monthSummary = monthTotals ?? { income_total: 0, expense_total: 0, balance_delta: 0 };
+  const monthHasNoTransactions = monthSummary.income_total === 0 && monthSummary.expense_total === 0;
 
-  const dashboardBlock = (
-    <>
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
-        <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
-          <p className="text-sm text-[#8A8F98]">Income this month</p>
-          <p className="mt-2 text-3xl font-semibold tabular-nums text-white">{formatEurPlain(monthSummary.income_total)}</p>
-        </Card>
-        <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
-          <p className="text-sm text-[#8A8F98]">Expenses this month</p>
-          <p className="mt-2 text-3xl font-semibold tabular-nums text-white">{formatEurPlain(monthSummary.expense_total)}</p>
-        </Card>
-        <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
-          <p className="text-sm text-[#8A8F98]">Monthly balance</p>
-          <p
-            className={`mt-2 text-3xl font-semibold tabular-nums ${
-              monthSummary.balance_delta >= 0 ? "text-[#b7e4c7]" : "text-[#ffb3b3]"
-            }`}
+  const monthMetricStrip = (
+    <div className={cn(ds.surfaces.metricBand, variant === "full" ? "mt-ds-3" : "mt-ds-4")}>
+      <div className="grid grid-cols-1 gap-x-ds-6 gap-y-ds-4 sm:grid-cols-3">
+        <div className="min-w-0 space-y-ds-1">
+          <MetricLabel>Income this month</MetricLabel>
+          <MetricValue>{formatEurPlain(monthSummary.income_total)}</MetricValue>
+        </div>
+        <div className="min-w-0 space-y-ds-1">
+          <MetricLabel>Expenses this month</MetricLabel>
+          <MetricValue>{formatEurPlain(monthSummary.expense_total)}</MetricValue>
+        </div>
+        <div className="min-w-0 space-y-ds-1">
+          <MetricLabel>Monthly balance</MetricLabel>
+          <MetricValue
+            className={monthSummary.balance_delta >= 0 ? "text-lifeos-success" : "text-lifeos-danger"}
           >
             {formatEurPlain(monthSummary.balance_delta)}
-          </p>
-        </Card>
+          </MetricValue>
+        </div>
       </div>
-      <p className={`mt-2 text-xs ${ui.mutedText}`}>
-        Monthly cards include every transaction in the current local month (server aggregate), not only the list below.
-      </p>
-    </>
+    </div>
   );
 
-  const transactionsBlock = (
-    <>
-      <div className={ui.formCard}>
-        <form onSubmit={onCreateTransaction} className={ui.formGrid}>
-          <div className="grid gap-2">
-            <label className={ui.formLabel}>Type</label>
-            <select className={ui.inputClass} value={kind} onChange={(e) => setKind(e.target.value as FinanceKind)}>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
-          </div>
-          <div className="grid gap-2">
-            <label className={ui.formLabel}>Amount</label>
-            <input className={ui.inputClass} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100.00" />
-          </div>
-          <div className="grid gap-2">
-            <label className={ui.formLabel}>Category</label>
-            <input
-              className={ui.inputClass}
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="Food, Salary, Transport..."
-            />
-          </div>
-          <div className="grid gap-2">
-            <label className={ui.formLabel}>Note</label>
-            <input className={ui.inputClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional comment" />
-          </div>
+  const monthFootnote = (
+    <BodyText as="p" className={cn("mt-ds-2", ds.typography.bodyMuted)}>
+      Totals include every transaction in your local calendar month (server aggregate), not only the list below.
+    </BodyText>
+  );
 
-          <div className="mt-1 flex justify-end md:col-span-2">
-            <Button
-              className="h-11 rounded-xl bg-[#C6A36B] px-6 text-sm font-medium text-black shadow-[0_4px_20px_rgba(198,163,107,0.2)] hover:-translate-y-px hover:bg-[#A8844F] active:translate-y-0"
-              type="submit"
-            >
-              ＋ Add transaction
-            </Button>
-          </div>
-        </form>
+  const emptyMonthHint =
+    monthHasNoTransactions ? (
+      <BodyText
+        as="p"
+        className={cn("mt-ds-3 rounded-ds-card bg-lifeos-muted/35 px-ds-3 py-ds-2 shadow-inner", ds.typography.bodySecondary)}
+      >
+        <span className="font-semibold text-lifeos-fg">No finance activity this month yet.</span> Add a row when
+        something moves.
+      </BodyText>
+    ) : null;
+
+  const quickAddForm = (
+    <div className={cn(ui.formCard, "!mt-0")}>
+      <p className={cn(ds.typography.sectionEyebrow, "mb-ds-3")}>Quick add</p>
+      <form onSubmit={onCreateTransaction} className={cn(ui.formGrid, "gap-ds-2")}>
+        <FormField id="tx-kind" label="Type">
+          <Select value={kind} onValueChange={(v) => setKind(v as FinanceKind)}>
+            <SelectTrigger id="tx-kind" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="expense">Expense</SelectItem>
+              <SelectItem value="income">Income</SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
+        <FormField id="tx-amount" label="Amount">
+          <Input
+            id="tx-amount"
+            className="tabular-nums"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="120.50"
+            inputMode="decimal"
+          />
+        </FormField>
+        <FormField id="tx-category" label="Category">
+          <Input
+            id="tx-category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="Food, rent, salary"
+            autoComplete="off"
+          />
+        </FormField>
+        <FormField id="tx-note" label="Note" optional>
+          <Input id="tx-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Client dinner" autoComplete="off" />
+        </FormField>
+        <div className="flex justify-end md:col-span-2">
+          <Button className="h-10 rounded-ds-button" type="submit" variant="primary" size="md">
+            ＋ Add
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+
+  const transactionsList = (
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-end justify-between gap-ds-2">
+        <h2 className={ds.typography.sectionTitle}>Recent movement</h2>
+        <span className={cn(ds.typography.caption, "tabular-nums text-lifeos-fg-muted")}>{transactions.length} rows</span>
       </div>
-
-      {error && <p className="mt-4 text-[#f7b0a2]">{error}</p>}
-
-      <div className="mt-6 space-y-3">
+      <div className="mt-ds-3 space-y-ds-2">
         {transactions.length === 0 && (
-          <div className={ui.emptyState}>No transactions yet. Add your first income or expense above.</div>
+          <div className={cn(ui.emptyState, "py-ds-4 text-sm")}>No transactions yet.</div>
         )}
         {transactions.map((t) => (
-          <Card key={t.id} className={ui.card}>
-            <p className={ui.cardTitle}>
+          <div
+            key={t.id}
+            className="flex flex-wrap items-baseline justify-between gap-x-ds-4 gap-y-ds-1 rounded-ds-input bg-lifeos-muted/25 px-ds-3 py-ds-2 shadow-inner"
+          >
+            <p className={cn(ds.typography.body, "font-medium tabular-nums text-lifeos-fg")}>
               {t.kind === "income" ? "+" : "-"}
-              {t.amount.toFixed(2)} ({t.category})
+              {t.amount.toFixed(2)}{" "}
+              <span className="font-normal text-lifeos-fg-secondary">({t.category})</span>
             </p>
-            <p className={`text-sm ${ui.mutedText}`}>{t.note ?? "No note"}</p>
-          </Card>
+            <p className={cn(ds.typography.bodyMuted, "min-w-0 flex-1 text-right")}>{t.note ?? "—"}</p>
+          </div>
         ))}
       </div>
-    </>
+    </div>
   );
 
   if (variant === "dashboard") {
     return (
       <div className={ui.contentClass}>
-        <section className={ui.panelClass}>
-          <h1 className="text-2xl font-semibold">Finance dashboard</h1>
-          <p className={ui.pageHint}>Month-to-date totals from the server.</p>
-          {error && <p className="mt-2 text-[#f7b0a2]">{error}</p>}
-          {dashboardBlock}
+        <section className={cn(ui.panelClass, "space-y-ds-3")}>
+          <div>
+            <PageTitle>Finance dashboard</PageTitle>
+            <MutedText className="mt-ds-2 max-w-[62ch]">Month-to-date totals from the server.</MutedText>
+          </div>
+          {error && <p className="text-sm text-lifeos-danger">{error}</p>}
+          {monthMetricStrip}
+          {emptyMonthHint}
+          {monthFootnote}
         </section>
       </div>
     );
@@ -192,17 +253,23 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
   if (variant === "transactions") {
     return (
       <div className={ui.contentClass}>
-        <section className={ui.panelClass}>
-          <h1 className="text-2xl font-semibold">Transactions</h1>
-          <p className={ui.pageHint}>Add entries and review recent movement.</p>
+        <section className={cn(ui.panelClass, "space-y-ds-4")}>
+          <div>
+            <PageTitle>Transactions</PageTitle>
+            <MutedText className="mt-ds-2 max-w-[62ch]">Add entries and scan recent movement.</MutedText>
+          </div>
           <div
             className={`overflow-hidden transition-all duration-300 ${
-              transactions.length === 0 ? "mt-3 max-h-10 opacity-100" : "mt-0 max-h-0 opacity-0"
+              transactions.length === 0 ? "max-h-10 opacity-100" : "max-h-0 opacity-0"
             }`}
           >
-            <p className={ui.microHint}>Tip: add income/expense as soon as it happens</p>
+            <p className={ui.microHint}>Tip: add income or expense as soon as it happens</p>
           </div>
-          {transactionsBlock}
+          <div className="grid gap-ds-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,34%)] lg:items-start">
+            <div className="min-w-0 lg:pt-ds-1">{transactionsList}</div>
+            {quickAddForm}
+          </div>
+          {error && <p className="text-sm text-lifeos-danger">{error}</p>}
         </section>
       </div>
     );
@@ -210,21 +277,31 @@ export default function FinancePageClient({ variant = "full" }: { variant?: Fina
 
   return (
     <div className={ui.contentClass}>
-      <section className={ui.panelClass}>
-        <h1 className="text-2xl font-semibold">Finance</h1>
-        <p className={ui.pageHint}>
-          Track income and expenses in one place. Add transactions as they happen to keep your balance and analytics accurate.
-        </p>
+      <section className={cn(ui.panelClass, "space-y-ds-4")}>
+        <div>
+          <PageTitle>Finance</PageTitle>
+          <MutedText className="mt-ds-2 max-w-[62ch]">
+            Track income and expenses. Add rows as they happen so analytics stay accurate.
+          </MutedText>
+        </div>
         <div
           className={`overflow-hidden transition-all duration-300 ${
-            transactions.length === 0 ? "mt-3 max-h-10 opacity-100" : "mt-0 max-h-0 opacity-0"
+            transactions.length === 0 ? "max-h-10 opacity-100" : "max-h-0 opacity-0"
           }`}
         >
-          <p className={ui.microHint}>Tip: add income/expense as soon as it happens</p>
+          <p className={ui.microHint}>Tip: add income or expense as soon as it happens</p>
         </div>
 
-        {dashboardBlock}
-        {transactionsBlock}
+        <div className="grid gap-ds-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,32%)] lg:items-start">
+          <div className="min-w-0 space-y-ds-3">
+            {monthMetricStrip}
+            {emptyMonthHint}
+            {monthFootnote}
+            {transactionsList}
+          </div>
+          <aside className="min-w-0 lg:sticky lg:top-4">{quickAddForm}</aside>
+        </div>
+        {error && <p className="text-sm text-lifeos-danger">{error}</p>}
       </section>
     </div>
   );

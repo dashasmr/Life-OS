@@ -10,6 +10,7 @@ A personal **Life OS** — a single place I use to run day-to-day productivity, 
 - [Why events-first](#why-events-first)
 - [Tech stack](#tech-stack)
 - [Frontend navigation](#frontend-navigation)
+- [UI & theming](#ui--theming)
 - [Repository layout](#repository-layout)
 - [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
@@ -26,6 +27,7 @@ A personal **Life OS** — a single place I use to run day-to-day productivity, 
 ## What it does
 
 - **Productivity** — tasks, focus sessions, Pomodoro  
+- **Goals** — period targets (tasks, focus minutes, savings, home health) on the dashboard  
 - **Finance** — income, expenses, balance signals  
 - **Home** — cleaning zones and status  
 - **Insights** — daily summary and recommendations (rule-based by default; optional OpenAI)  
@@ -42,23 +44,35 @@ Important actions write rows to the `events` table. Analytics and insights read 
 | Backend      | FastAPI (Python), SQLAlchemy  |
 | Database     | PostgreSQL (Docker locally)   |
 | Migrations   | Alembic                       |
-| Frontend     | Next.js, TypeScript, Tailwind |
+| Frontend     | Next.js 14, TypeScript, Tailwind, shared design tokens (`themes.css`, `design-system`) |
 
 ## Frontend navigation
 
-The UI is split into **five primary areas** (top bar on desktop, bottom bar on narrow screens). Each area can expose **tabs** for related screens. Older URLs still work and **redirect** to the new routes.
+The UI uses a **primary nav** (top bar on desktop, bottom bar on mobile): five feature areas plus **Settings**. Each area can expose **tabs** for related screens. Older URLs still work and **redirect** to the new routes.
 
 | Area            | Base path          | Tabs / notes |
 | --------------- | ------------------ | ------------ |
-| **Dashboard**   | `/dashboard/...`   | Overview, Command Center, Daily Plan, Recommendations, Notifications |
+| **Dashboard**   | `/dashboard/...`   | Overview, Command Center, Daily Plan, Recommendations, Notifications, **Goals** (`/dashboard/goals`) |
 | **Work**        | `/work/...`        | Tasks, Focus, Pomodoro |
 | **Life**        | `/life/...`        | Cleaning, Home Health, Consistency |
-| **Finance**     | `/finance/...`     | Dashboard (month totals), Transactions (form + list) |
-| **Insights**    | `/insights/...`    | Activity, Timeline, Review, AI Daily Insight |
+| **Finance**     | `/finance/...`     | Dashboard (month totals), Transactions |
+| **Insights**    | `/insights/...`    | Activity, Timeline, Review, AI insight / reviews |
+| **Settings**    | `/settings`        | Appearance (dark / light / system), personalization, local automation toggles, link to developer tools |
+
+Other useful routes: **weekly review** at `/review`, **legacy overview** at `/overview` (if still linked from bookmarks).
 
 **Redirects (examples):** `/` → `/dashboard/overview`; `/tasks` → `/work/tasks`; `/finance` → `/finance/dashboard`; `/activity` → `/insights/activity`; and similar for other legacy paths.
 
-**Mobile:** horizontal overflow is handled where it matters; primary actions use touch-friendly targets (e.g. min height ~44px); the bottom nav mirrors the five areas.
+**Mobile:** horizontal overflow is handled where it matters; primary actions use touch-friendly targets (e.g. min height ~44px); the bottom nav mirrors the main areas.
+
+## UI & theming
+
+- **Themes:** `html[data-theme="dark" | "light"]` with semantic tokens in `frontend/styles/themes.css` (surfaces, text, accent, status colors). The app shell applies the chosen theme from Settings (local preference).
+- **Design system:** shared spacing, card surfaces, and typography hints live in `frontend/styles/design-system.ts` and are composed with Tailwind (`lifeos-*` utilities).
+- **Layout direction:** dashboard and tool pages favor **compact, operational** layouts (grouped metrics, side-by-side forms where it helps) so data stays primary and empty card chrome stays minimal.
+- **Control Center “Current state”:** short status rows use **tone-colored** rings (success / warning / risk / soft indigo for neutral) so Mind / Home / Finance / Energy read as separate cells without heavy borders.
+
+If you change tokens, prefer editing `themes.css` and `design-system.ts` rather than one-off hex in components.
 
 ## Repository layout
 
@@ -149,10 +163,10 @@ npm install
 npm run dev
 ```
 
-Open the URL Next.js prints (often `http://localhost:3000`). If the port is busy:
+The dev script is pinned to **port 3001** (`next dev -p 3001` in `package.json`), so the app is usually at **`http://localhost:3001`**. Override only if you need another port:
 
 ```bash
-npm run dev -- -p 3001
+npm run dev -- -p 3000
 ```
 
 Point the app at your API (defaults to `http://localhost:8765` if unset):
@@ -162,8 +176,6 @@ Point the app at your API (defaults to `http://localhost:8765` if unset):
 - **macOS / Linux:** `export NEXT_PUBLIC_API_URL=http://127.0.0.1:8765`
 
 Restart `npm run dev` after changing `NEXT_PUBLIC_*` variables.
-
-This repo’s `package.json` may pin the dev server to a specific port (e.g. **3001**); use whatever URL Next.js prints after `npm run dev`.
 
 ## Optional AI
 

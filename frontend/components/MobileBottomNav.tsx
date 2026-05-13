@@ -21,7 +21,7 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-[#2A2F36] bg-[#0B0D10]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-lifeos-border bg-lifeos-page/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
       aria-label="Primary mobile"
     >
       <div className="mx-auto grid max-w-7xl grid-cols-5 gap-0.5 px-1 pt-1">
@@ -32,10 +32,10 @@ export function MobileBottomNav() {
               key={href}
               href={href}
               className={[
-                "flex min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-medium leading-tight transition touch-manipulation",
+                "flex min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-medium leading-tight transition-[background-color,color,transform] duration-lifeos-normal ease-lifeos touch-manipulation",
                 active
-                  ? "text-[#C6A36B]"
-                  : "text-[#8A8F98] active:bg-[#141A22] hover:text-[#c9d0d8]"
+                  ? "text-lifeos-accent"
+                  : "text-lifeos-fg-muted hover:bg-lifeos-muted/55 hover:text-lifeos-fg-secondary active:scale-[0.97]"
               ].join(" ")}
             >
               <Icon className="size-5 shrink-0" strokeWidth={active ? 2.25 : 1.75} aria-hidden />

@@ -11,4 +11,4 @@ export type {
   RecommendationPrimaryAction,
   RecommendationPriority
 } from "@/lib/recommendations/types";
-export type { AutomationRiskSignal } from "@/services/automation/types";
+export type { AutomationPositiveInsight, AutomationRiskSignal } from "@/services/automation/types";

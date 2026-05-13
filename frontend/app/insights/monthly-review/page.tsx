@@ -22,6 +22,18 @@ import { formatDateFiNumeric, getLocalMonthRangeIso, localCalendarDayKeyFromDate
 import type { BehaviorPattern } from "@/lib/patterns";
 import { topExpenseCategoryInRange } from "@/lib/weeklyReviewInsights";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { cn } from "@/lib/utils";
+import {
+  BodyText,
+  CardTitle,
+  MetricLabel,
+  MetricValue,
+  MutedText,
+  PageTitle,
+  SectionTitle
+} from "@/components/ui/typography";
+import { PageSectionSkeleton } from "@/components/ui/skeleton";
 
 function formatEur(value: number): string {
   return `€${value.toFixed(2)}`;
@@ -53,6 +65,7 @@ export default function MonthlyReviewPage() {
   const [expenseRows, setExpenseRows] = useState<FinanceTransaction[]>([]);
   const [snapshots, setSnapshots] = useState<DailySnapshot[]>([]);
   const [behaviorPatterns, setBehaviorPatterns] = useState<BehaviorPattern[]>([]);
+  const [behaviorPatternsInsufficient, setBehaviorPatternsInsufficient] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -96,9 +109,17 @@ export default function MonthlyReviewPage() {
         setExpenseRows(await txRes.json());
         setSnapshots(await snapRes.json());
         if (patRes.ok) {
-          setBehaviorPatterns((await patRes.json()) as BehaviorPattern[]);
+          const raw = (await patRes.json()) as BehaviorPattern[] | { patterns?: BehaviorPattern[]; insufficientHistory?: boolean };
+          if (Array.isArray(raw)) {
+            setBehaviorPatterns(raw);
+            setBehaviorPatternsInsufficient(false);
+          } else {
+            setBehaviorPatterns(raw.patterns ?? []);
+            setBehaviorPatternsInsufficient(Boolean(raw.insufficientHistory));
+          }
         } else {
           setBehaviorPatterns([]);
+          setBehaviorPatternsInsufficient(false);
         }
       })
       .catch((err: unknown) => setError(describeFetchFailure(err)))
@@ -161,203 +182,246 @@ export default function MonthlyReviewPage() {
   return (
     <div className={ui.contentClass}>
       <section className={ui.panelClass}>
-        <h1 className="text-2xl font-semibold text-white">Monthly review</h1>
-        <p className={ui.pageHint}>How did this month go? Range uses your local calendar month.</p>
-        <p className={`mt-1 text-sm ${ui.mutedText}`}>{monthTitle}</p>
+        <div className="space-y-ds-2">
+          <PageTitle>Monthly review</PageTitle>
+          <MutedText className={ds.typography.proseMax}>
+            How did this month go? Range uses your local calendar month.
+          </MutedText>
+          <p className={cn(ds.typography.bodySecondary, "text-lifeos-fg-muted")}>{monthTitle}</p>
+        </div>
 
-        {loading && <p className={`mt-6 text-sm ${ui.mutedText}`}>Loading your month…</p>}
-        {error && <p className="mt-6 text-[#f7b0a2]">{error}</p>}
+        {loading && (
+          <div className="mt-6">
+            <PageSectionSkeleton />
+          </div>
+        )}
+        {error && <p className="mt-6 text-lifeos-danger">{error}</p>}
 
         {!loading && !error && (
           <div className="mt-8 space-y-8">
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Productivity</h2>
-              <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Tasks completed</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{monthlyStats.tasksCompleted}</dd>
+            <section className={ds.surfaces.contentPanel}>
+              <SectionTitle>Productivity</SectionTitle>
+              <dl className="mt-ds-5 grid gap-ds-5 sm:grid-cols-3">
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Tasks completed</MetricLabel>
+                  <MetricValue as="dd">{monthlyStats.tasksCompleted}</MetricValue>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Focus minutes</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{monthlyStats.focusMinutes}</dd>
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Focus minutes</MetricLabel>
+                  <MetricValue as="dd">{monthlyStats.focusMinutes}</MetricValue>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Most productive day</dt>
-                  <dd className="mt-1 text-lg font-semibold text-white">
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Most productive day</MetricLabel>
+                  <CardTitle as="dd" className="mt-0">
                     {bestDay ? formatDayKeyLabel(bestDay.dayKey) : "—"}
-                  </dd>
+                  </CardTitle>
                   {bestDay && (
-                    <p className={`mt-1 text-sm ${ui.mutedText}`}>
+                    <BodyText as="p" className={cn(ds.typography.bodyMuted, "pt-ds-1")}>
                       {bestDay.tasksCompleted} tasks · {bestDay.focusMinutes} focus min
-                    </p>
+                    </BodyText>
                   )}
                   {!bestDay && (
-                    <p className={`mt-1 text-sm ${ui.mutedText}`}>No task or focus signals in this window yet.</p>
+                    <BodyText as="p" className={ds.typography.bodyMuted}>
+                      No tasks or focus in this window yet.
+                    </BodyText>
                   )}
                 </div>
               </dl>
-              <p className={`mt-3 text-xs ${ui.mutedText}`}>
+              <BodyText as="p" className={cn(ds.typography.bodyMuted, "mt-ds-5")}>
                 Pomodoros completed: {monthEventCounts.pomodoro_completed ?? 0}
-              </p>
+              </BodyText>
             </section>
 
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Finance</h2>
-              <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Income</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-white">{formatEur(financeBlock.income)}</dd>
+            <section className={ds.surfaces.contentPanel}>
+              <SectionTitle>Finance</SectionTitle>
+              <dl className="mt-ds-5 grid gap-ds-5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Income</MetricLabel>
+                  <MetricValue as="dd">{formatEur(financeBlock.income)}</MetricValue>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Expenses</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-white">{formatEur(financeBlock.expense)}</dd>
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Expenses</MetricLabel>
+                  <MetricValue as="dd">{formatEur(financeBlock.expense)}</MetricValue>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Balance</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-white">{formatEur(financeBlock.balance)}</dd>
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Balance</MetricLabel>
+                  <MetricValue as="dd">{formatEur(financeBlock.balance)}</MetricValue>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Top spending category</dt>
-                  <dd className="mt-1 text-lg font-semibold text-white">{financeBlock.topCategory ?? "—"}</dd>
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Top spending category</MetricLabel>
+                  <CardTitle as="dd" className="mt-0">
+                    {financeBlock.topCategory ?? "—"}
+                  </CardTitle>
                   {financeBlock.topCategory != null && financeBlock.topAmount > 0 && (
-                    <p className={`mt-1 text-sm tabular-nums ${ui.mutedText}`}>{formatEur(financeBlock.topAmount)}</p>
+                    <BodyText as="p" className={cn(ds.typography.bodyMuted, "tabular-nums")}>
+                      {formatEur(financeBlock.topAmount)}
+                    </BodyText>
                   )}
                 </div>
               </dl>
             </section>
 
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Behavior patterns</h2>
-              <p className={`mt-1 text-sm ${ui.mutedText}`}>
-                Deterministic analytics from the API (same signals as AI context). Not generated by the model.
-              </p>
+            <section className={ds.surfaces.contentPanel}>
+              <SectionTitle>Behavior patterns</SectionTitle>
+              <MutedText className={cn("mt-ds-2", ds.typography.proseMax)}>
+                Counts from the API. Separate from the monthly draft.
+              </MutedText>
               {behaviorPatterns.length === 0 ? (
-                <p className={`mt-4 text-sm ${ui.mutedText}`}>
-                  No pattern cleared the bar for this window — keep logging focus, snapshots, and categorized expenses.
-                </p>
+                <MutedText className="mt-ds-5 max-w-[65ch]">
+                  {behaviorPatternsInsufficient
+                    ? "Not enough data to detect behavioral patterns yet. Log activity across several distinct days (focus, cleaning, categorized expenses) before reading trends here."
+                    : "No pattern cleared the bar for this window — keep logging focus, snapshots, and categorized expenses."}
+                </MutedText>
               ) : (
-                <ul className="mt-4 space-y-3">
+                <ul className="mt-ds-5 space-y-ds-3">
                   {behaviorPatterns.map((p) => (
                     <li
                       key={p.id}
-                      className="rounded-xl border border-l-4 border-[#2A2F36] border-l-[#6B8FC6] bg-[#141A22] px-4 py-3 text-sm text-[#E5E5E5]"
+                      className="rounded-xl bg-lifeos-muted/35 px-4 py-3 shadow-inner"
                     >
-                      <span className="text-xs uppercase tracking-wide text-[#9aa3ad]">
+                      <span className={ds.typography.labelMicro}>
                         {p.category} · {(p.confidence * 100).toFixed(0)}%
                       </span>
-                      <p className="mt-1 leading-relaxed">{p.message}</p>
+                      <BodyText as="p" className="mt-ds-2 text-lifeos-fg-secondary">
+                        {p.message}
+                      </BodyText>
                     </li>
                   ))}
                 </ul>
               )}
             </section>
 
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <h2 className="text-lg font-semibold text-white">Home</h2>
-              <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Cleaning actions</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">{monthlyStats.cleaningActions}</dd>
+            <section className={ds.surfaces.contentPanel}>
+              <SectionTitle>Home</SectionTitle>
+              <dl className="mt-ds-5 grid gap-ds-5 sm:grid-cols-3">
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Cleaning actions</MetricLabel>
+                  <MetricValue as="dd">{monthlyStats.cleaningActions}</MetricValue>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Average home health score</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums text-white">
-                    {avgHomeHealth != null ? `${avgHomeHealth}%` : "—"}
-                  </dd>
-                  <p className={`mt-2 text-sm ${ui.mutedText}`}>
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Average home health score</MetricLabel>
+                  <MetricValue as="dd">{avgHomeHealth != null ? `${avgHomeHealth}%` : "—"}</MetricValue>
+                  <BodyText as="p" className={cn(ds.typography.bodyMuted, "pt-ds-1")}>
                     {avgHomeHealth != null
                       ? "Mean of daily snapshot scores in this month (when snapshots exist)."
                       : currentHomeHealth != null
                         ? `No snapshot samples this month; current score: ${currentHomeHealth.scorePercent}%.`
                         : "Add cleaning zones and generate daily snapshots to see a monthly average."}
-                  </p>
+                  </BodyText>
                 </div>
-                <div>
-                  <dt className={`text-sm ${ui.mutedText}`}>Most overdue zone</dt>
-                  <dd className="mt-1 text-lg font-semibold text-white">{worstZone?.name ?? "—"}</dd>
+                <div className="space-y-ds-2">
+                  <MetricLabel as="dt">Most overdue zone</MetricLabel>
+                  <CardTitle as="dd" className="mt-0">
+                    {worstZone?.name ?? "—"}
+                  </CardTitle>
                   {!worstZone && zones.length > 0 && (
-                    <p className={`mt-2 text-sm ${ui.mutedText}`}>No overdue zones right now.</p>
+                    <BodyText as="p" className={ds.typography.bodyMuted}>
+                      No overdue zones right now.
+                    </BodyText>
                   )}
                   {zones.length === 0 && (
-                    <p className={`mt-2 text-sm ${ui.mutedText}`}>No zones configured.</p>
+                    <BodyText as="p" className={ds.typography.bodyMuted}>
+                      No zones configured.
+                    </BodyText>
                   )}
                 </div>
               </dl>
             </section>
 
-            <section className="rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">AI month summary</h2>
-                  <p className={`mt-1 text-sm ${ui.mutedText}`}>
+            <section
+              className={cn(
+                ds.surfaces.contentPanel,
+                "shadow-[0_0_40px_-12px_rgba(91,108,255,0.14)]"
+              )}
+            >
+              <div className="flex flex-col gap-ds-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-ds-2">
+                  <SectionTitle>AI month summary</SectionTitle>
+                  <MutedText className={ds.typography.proseMax}>
                     Generated on demand from the same month window; does not auto-load.
-                  </p>
+                  </MutedText>
                 </div>
                 <button
                   type="button"
                   onClick={() => void generateMonthlyAi()}
                   disabled={aiLoading}
-                  className="shrink-0 rounded-xl border border-[#C6A36B] bg-[#C6A36B]/10 px-4 py-2 text-sm font-medium text-[#C6A36B] transition hover:bg-[#C6A36B]/20 disabled:opacity-50"
+                  className="shrink-0 rounded-xl bg-lifeos-accent-soft px-4 py-2 text-lifeos-body font-medium text-lifeos-accent shadow-sm transition hover:bg-lifeos-accent/15 disabled:opacity-50"
                 >
                   {aiLoading ? "Working…" : "Generate AI summary"}
                 </button>
               </div>
 
-              {aiError && <p className="mt-4 text-sm text-[#f7b0a2]">{aiError}</p>}
+              {aiError && (
+                <BodyText as="p" className="mt-ds-5 text-lifeos-danger">
+                  {aiError}
+                </BodyText>
+              )}
 
               {!monthlyAi && !aiLoading && !aiError && (
-                <p className={`mt-4 text-sm ${ui.mutedText}`}>Run the generator when you want wins, risks, and focus ideas.</p>
+                <MutedText className="mt-ds-5 max-w-[62ch]">
+                  Run the generator when you want wins, risks, and focus ideas.
+                </MutedText>
               )}
 
               {monthlyAi && (
-                <div className="mt-6 space-y-6">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-base font-medium text-[#c9d0d8]">{monthlyAi.title}</p>
+                <div className="mt-ds-6 space-y-ds-6">
+                  <div className="flex flex-wrap items-center gap-ds-2">
+                    <BodyText as="p" className="font-semibold text-lifeos-fg-secondary">
+                      {monthlyAi.title}
+                    </BodyText>
                     {monthlyAi.fallback && (
-                      <span className="rounded-md border border-[#2A2F36] bg-[#141A22] px-2 py-0.5 text-xs text-[#9aa3ad]">
+                      <span className="rounded-md bg-lifeos-muted/50 px-2 py-0.5 text-lifeos-caption text-lifeos-fg-muted shadow-sm">
                         Rule-based fallback
                       </span>
                     )}
                   </div>
-                  <p className="text-sm leading-relaxed text-[#E5E5E5]">{monthlyAi.summary}</p>
+                  <MutedText className={ds.typography.proseWideMax}>{monthlyAi.summary}</MutedText>
 
-                  <div className="grid gap-6 md:grid-cols-2">
+                  <div className="grid gap-ds-6 md:grid-cols-2">
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-[#C6A36B]">Wins</h3>
-                      <ul className="mt-2 space-y-2">
+                      <CardTitle className="text-lifeos-success">Wins</CardTitle>
+                      <ul className="mt-ds-3 space-y-ds-2">
                         {(monthlyAi.wins.length ? monthlyAi.wins : ["—"]).map((line) => (
-                          <li key={line} className="text-sm text-[#E5E5E5]">
-                            {line}
+                          <li key={line}>
+                            <BodyText as="p" className="text-lifeos-fg-secondary">
+                              {line}
+                            </BodyText>
                           </li>
                         ))}
                       </ul>
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-[#C6A36B]">Risks</h3>
-                      <ul className="mt-2 space-y-2">
+                      <CardTitle className="text-lifeos-warning">Risks</CardTitle>
+                      <ul className="mt-ds-3 space-y-ds-2">
                         {(monthlyAi.risks.length ? monthlyAi.risks : ["—"]).map((line) => (
-                          <li key={line} className="text-sm text-[#E5E5E5]">
-                            {line}
+                          <li key={line}>
+                            <BodyText as="p" className="text-lifeos-fg-secondary">
+                              {line}
+                            </BodyText>
                           </li>
                         ))}
                       </ul>
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-[#C6A36B]">Patterns</h3>
-                      <ul className="mt-2 space-y-2">
+                      <CardTitle className="text-lifeos-status-neutral">Patterns</CardTitle>
+                      <ul className="mt-ds-3 space-y-ds-2">
                         {(monthlyAi.patterns.length ? monthlyAi.patterns : ["—"]).map((line) => (
-                          <li key={line} className="text-sm text-[#E5E5E5]">
-                            {line}
+                          <li key={line}>
+                            <BodyText as="p" className="text-lifeos-fg-secondary">
+                              {line}
+                            </BodyText>
                           </li>
                         ))}
                       </ul>
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-[#C6A36B]">Next month focus</h3>
-                      <ul className="mt-2 space-y-2">
+                      <CardTitle className="text-lifeos-accent">Next month focus</CardTitle>
+                      <ul className="mt-ds-3 space-y-ds-2">
                         {(monthlyAi.nextMonthFocus.length ? monthlyAi.nextMonthFocus : ["—"]).map((line) => (
-                          <li key={line} className="text-sm text-[#E5E5E5]">
-                            {line}
+                          <li key={line}>
+                            <BodyText as="p" className="text-lifeos-fg-secondary">
+                              {line}
+                            </BodyText>
                           </li>
                         ))}
                       </ul>

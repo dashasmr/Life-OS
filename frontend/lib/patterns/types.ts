@@ -10,3 +10,9 @@ export type BehaviorPattern = {
   confidence: number;
   message: string;
 };
+
+/** Envelope from `/analytics/behavior-patterns` including sample sufficiency. */
+export type BehaviorPatternsResponse = {
+  patterns: BehaviorPattern[];
+  insufficientHistory: boolean;
+};

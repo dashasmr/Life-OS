@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL, EventItem } from "@/lib/api";
 import { normalizeAnalyticsEvents } from "@/lib/analytics/normalize";
 import { localCalendarDayKeyFromDate } from "@/lib/datetime";
 import { buildDailyTimeline, type TimelineRow } from "@/lib/timeline";
 import { ui } from "@/lib/ui";
+import { ds } from "@/styles/design-system";
+import { PageSectionSkeleton } from "@/components/ui/skeleton";
+import { useLifeOsRealtimeEpoch } from "@/services/realtime";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -29,17 +32,17 @@ function formatDayHeading(dayKey: string): string {
 
 function TimelineList({ rows }: { rows: TimelineRow[] }) {
   return (
-    <ul className="relative ml-1 border-l border-[#2A2F36] pl-8">
+    <ul className="relative ml-1 border-l border-lifeos-border pl-8">
       {rows.map((row, i) => (
         <li key={row.id} className={`relative ${i < rows.length - 1 ? "pb-10" : "pb-1"}`}>
           <span
-            className="absolute -left-[5px] top-1.5 size-2.5 rounded-full bg-[#C6A36B] shadow-[0_0_0_4px_#11151A]"
+            className="absolute -left-[5px] top-1.5 size-2.5 rounded-full bg-lifeos-accent ring-4 ring-lifeos-page"
             aria-hidden
           />
-          <time className="text-sm font-medium tabular-nums text-[#C6A36B]" dateTime={new Date(row.atMs).toISOString()}>
+          <time className="text-sm font-medium tabular-nums text-lifeos-accent" dateTime={new Date(row.atMs).toISOString()}>
             {row.timeLabel}
           </time>
-          <p className="mt-1 text-base font-medium leading-snug text-white">{row.headline}</p>
+          <p className="mt-1 text-base font-medium leading-snug text-lifeos-fg">{row.headline}</p>
           {row.detail ? <p className={`mt-1 text-sm leading-relaxed ${ui.mutedText}`}>{row.detail}</p> : null}
         </li>
       ))}
@@ -52,19 +55,31 @@ export default function DailyTimelinePage() {
   const [dayKey, setDayKey] = useState(todayInputValue);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const realtimeEpoch = useLifeOsRealtimeEpoch();
 
-  useEffect(() => {
+  const loadEvents = useCallback(async () => {
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/events?limit=500`, { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Failed to load events");
-        const raw = (await res.json()) as Array<Omit<EventItem, "type"> & { type: string }>;
-        setEvents(normalizeAnalyticsEvents(raw));
-      })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+    try {
+      const res = await fetch(`${API_URL}/events?limit=500`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load events");
+      const raw = (await res.json()) as Array<Omit<EventItem, "type"> & { type: string }>;
+      setEvents(normalizeAnalyticsEvents(raw));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load events");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadEvents();
+  }, [loadEvents]);
+
+  useEffect(() => {
+    if (realtimeEpoch === 0) return;
+    void loadEvents();
+  }, [realtimeEpoch, loadEvents]);
 
   const rows = useMemo(() => buildDailyTimeline(events, dayKey), [events, dayKey]);
 
@@ -73,8 +88,8 @@ export default function DailyTimelinePage() {
   return (
     <div className={ui.contentClass}>
       <section className={ui.panelClass}>
-        <h1 className="text-2xl font-semibold text-white">Daily timeline</h1>
-        <p className={ui.pageHint}>How your day unfolded — one chronological stream from your event log.</p>
+        <h1 className="text-2xl font-semibold text-lifeos-fg">Daily timeline</h1>
+        <p className={ui.pageHint}>Your day as a single timeline from the event log.</p>
         <p className={ui.microHint}>Tip: pick any calendar day; events use your local timezone.</p>
 
         <div className="mt-6 flex flex-wrap items-end gap-4">
@@ -96,12 +111,16 @@ export default function DailyTimelinePage() {
           </p>
         </div>
 
-        {error && <p className="mt-6 text-[#f7b0a2]">{error}</p>}
-        {loading && <p className={`mt-6 text-sm ${ui.mutedText}`}>Loading events…</p>}
+        {error && <p className="mt-6 text-lifeos-danger">{error}</p>}
+        {loading && (
+          <div className="mt-6">
+            <PageSectionSkeleton />
+          </div>
+        )}
 
         {!loading && !error && rows.length === 0 && (
-          <div className="mt-8 rounded-xl border border-[#2A2F36] bg-[#141A22] px-6 py-12 text-center">
-            <p className="text-lg font-medium text-white">Nothing logged this day yet</p>
+          <div className="mt-8 rounded-xl border border-lifeos-border bg-lifeos-muted px-6 py-12 text-center">
+            <p className="text-lg font-medium text-lifeos-fg">Nothing logged this day yet</p>
             <p className={`mt-2 text-sm ${ui.mutedText}`}>
               Complete tasks, run focus, add expenses, or mark cleaning — they will appear here in order.
             </p>
@@ -109,7 +128,7 @@ export default function DailyTimelinePage() {
         )}
 
         {!loading && !error && rows.length > 0 && (
-          <div className="mt-8 rounded-2xl border border-[#2A2F36] bg-[#0F1318] p-6 md:p-8">
+          <div className={`mt-8 ${ds.surfaces.contentPanel}`}>
             <TimelineList rows={rows} />
           </div>
         )}

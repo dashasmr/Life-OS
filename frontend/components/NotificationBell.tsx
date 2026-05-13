@@ -3,12 +3,17 @@
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Bell } from "lucide-react";
 import { toast } from "sonner";
+import { sendWithOfflineQueue } from "@/services/offlineQueue";
 import { API_URL, CleaningZone, FocusSession, TaskItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { WhyMuted } from "@/components/explainability/WhyLine";
 import { getLocalDayRangeIso } from "@/lib/datetime";
 import { ui } from "@/lib/ui";
 import { useAutomationPrefsEpoch } from "@/hooks/useAutomationPrefsEpoch";
+import { useUserPreferencesEpoch } from "@/hooks/useUserPreferencesEpoch";
+import { useLifeOsRealtimeEpoch } from "@/services/realtime";
 import {
   categoryNotificationEmoji,
   generateNotifications,
@@ -73,6 +78,7 @@ async function fetchNotificationDrivers(): Promise<{
 
 export function NotificationBell() {
   const automationPrefsEpoch = useAutomationPrefsEpoch();
+  const userPrefsEpoch = useUserPreferencesEpoch();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -86,6 +92,7 @@ export function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [panelRect, setPanelRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const realtimeEpoch = useLifeOsRealtimeEpoch();
 
   const refresh = useCallback(async () => {
     try {
@@ -108,6 +115,11 @@ export function NotificationBell() {
     refresh().catch(() => setLoadError(true));
   }, [pathname, refresh]);
 
+  useEffect(() => {
+    if (realtimeEpoch === 0) return;
+    refresh().catch(() => setLoadError(true));
+  }, [realtimeEpoch, refresh]);
+
   const notifications: AppNotification[] = useMemo(() => {
     const now = new Date();
     const drafts = generateNotifications({
@@ -118,7 +130,7 @@ export function NotificationBell() {
       now
     });
     return mergeNotificationReadState(drafts, readIds, now);
-  }, [zones, focusSessions, tasks, expenseToday, readIds, automationPrefsEpoch]);
+  }, [zones, focusSessions, tasks, expenseToday, readIds, automationPrefsEpoch, userPrefsEpoch]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
@@ -200,12 +212,23 @@ export function NotificationBell() {
       setActionBusyId(n.id);
       try {
         if (a.target === NOTIFICATION_MUTATION.focus_start) {
-          const res = await fetch(`${API_URL}/focus/sessions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ label: null, task_id: null })
-          });
-          if (!res.ok) throw new Error("focus");
+          const result = await sendWithOfflineQueue(
+            { kind: "focus_start", body: { label: null, task_id: null } },
+            () =>
+              fetch(`${API_URL}/focus/sessions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ label: null, task_id: null })
+              })
+          );
+          if (result.mode === "queued") {
+            toast.info("Pending sync", { description: "Saved offline. Syncs when you are online." });
+            markRead(n.id);
+            await refresh();
+            setOpen(false);
+            return;
+          }
+          if (!result.response.ok) throw new Error("focus");
           toast.success("Focus session started");
           markRead(n.id);
           await refresh();
@@ -217,12 +240,20 @@ export function NotificationBell() {
         if (a.target === NOTIFICATION_MUTATION.cleaning_mark_done) {
           const zoneId = a.payload?.zoneId;
           if (typeof zoneId !== "string") throw new Error("zone");
-          const res = await fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({})
-          });
-          if (!res.ok) throw new Error("cleaning");
+          const result = await sendWithOfflineQueue({ kind: "cleaning_done", zoneId }, () =>
+            fetch(`${API_URL}/cleaning/zones/${zoneId}/done`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({})
+            })
+          );
+          if (result.mode === "queued") {
+            toast.info("Pending sync", { description: "Cleaning logged locally." });
+            markRead(n.id);
+            await refresh();
+            return;
+          }
+          if (!result.response.ok) throw new Error("cleaning");
           toast.success("Marked as cleaned");
           markRead(n.id);
           await refresh();
@@ -239,9 +270,9 @@ export function NotificationBell() {
   }
 
   function typeStyles(t: AppNotification["type"]): string {
-    if (t === "warning") return "border-l-amber-500/80 bg-[#1a1610]";
-    if (t === "success") return "border-l-emerald-500/70 bg-[#101814]";
-    return "border-l-[#3d5a7a]/80 bg-[#121820]";
+    if (t === "warning") return "border-l-lifeos-warning bg-lifeos-warning-muted/40";
+    if (t === "success") return "border-l-lifeos-success bg-lifeos-success-muted/40";
+    return "border-l-lifeos-accent/40 bg-lifeos-muted";
   }
 
   return (
@@ -252,7 +283,7 @@ export function NotificationBell() {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={unreadCount ? `${unreadCount} unread notifications` : "Notifications"}
-        className="relative flex h-11 min-h-[44px] items-center gap-1.5 rounded-xl border border-[#2A2F36] bg-[#141A22] px-3 text-sm font-medium text-[#E5E5E5] transition hover:border-[#3d4652] hover:bg-[#1a2028]"
+        className="relative flex min-h-[44px] items-center gap-1 rounded-[10px] border border-transparent bg-transparent px-2.5 text-lifeos-fg-muted transition hover:bg-lifeos-hover/90 hover:text-lifeos-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lifeos-accent/35"
         onClick={() => {
           if (open) {
             setOpen(false);
@@ -263,9 +294,9 @@ export function NotificationBell() {
           setOpen(true);
         }}
       >
-        <span aria-hidden>🔔</span>
+        <Bell className="size-[1.125rem] shrink-0" strokeWidth={1.75} aria-hidden />
         {unreadCount > 0 ? (
-          <span className="min-w-[1.25rem] rounded-md bg-[#C6A36B]/20 px-1.5 text-center text-xs font-semibold tabular-nums text-[#f3d59e]">
+          <span className="min-w-[1.125rem] rounded-md bg-lifeos-muted px-1 text-center text-[10px] font-semibold tabular-nums text-lifeos-fg-secondary">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         ) : null}
@@ -283,14 +314,14 @@ export function NotificationBell() {
             width: panelRect.width,
             zIndex: 60
           }}
-          className="flex max-h-[min(70vh,22rem)] flex-col overflow-hidden rounded-xl border border-[#2A2F36] bg-[#11151A] shadow-[0_16px_48px_rgba(0,0,0,0.55)]"
+          className="flex max-h-[min(70vh,22rem)] flex-col overflow-hidden rounded-xl border border-lifeos-border bg-lifeos-card shadow-ds-lg"
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-[#2A2F36] px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#8A8F98]">Notifications</p>
+          <div className="flex shrink-0 items-center justify-between border-b border-lifeos-border px-3 py-2">
+            <p className="text-lifeos-caption font-medium text-lifeos-fg-secondary">Notifications</p>
             {notifications.length > 0 && unreadCount > 0 ? (
               <button
                 type="button"
-                className={`text-xs font-medium text-[#C6A36B] hover:underline`}
+                className="text-xs font-medium text-lifeos-accent hover:underline"
                 onClick={markAllRead}
               >
                 Mark all read
@@ -300,15 +331,15 @@ export function NotificationBell() {
 
           <div className="max-h-[min(70vh,20rem)] overflow-y-auto">
             {loadError ? (
-              <p className={`px-3 py-4 text-sm ${ui.mutedText}`}>Couldn&apos;t load signals. Check API connection.</p>
+              <p className={`px-3 py-4 text-sm ${ui.mutedText}`}>Could not load notifications. Check your connection.</p>
             ) : notifications.length === 0 ? (
-              <p className={`px-3 py-4 text-sm ${ui.mutedText}`}>You&apos;re all caught up — no nudges right now.</p>
+              <p className={`px-3 py-4 text-sm ${ui.mutedText}`}>Nothing new right now.</p>
             ) : (
-              <ul className="divide-y divide-[#2A2F36]">
+              <ul className="divide-y divide-lifeos-border">
                 {notifications.map((n) => (
                   <li key={n.id}>
                     <div
-                      className={`border-l-4 text-left transition hover:bg-[#171B21]/80 ${typeStyles(n.type)} ${
+                      className={`border-l-4 text-left transition hover:bg-lifeos-hover/80 ${typeStyles(n.type)} ${
                         n.read ? "opacity-60" : ""
                       }`}
                     >
@@ -317,14 +348,17 @@ export function NotificationBell() {
                           {categoryNotificationEmoji(n.category)}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium text-white">{n.title}</span>
+                          <span className="block text-sm font-medium text-lifeos-fg">{n.title}</span>
                           <span className={`mt-0.5 block break-words text-xs leading-snug ${ui.mutedText}`}>
                             {n.message}
                           </span>
+                          <WhyMuted text={n.explanation ?? ""} />
                           {n.action ? (
                             <div className="mt-2">
                               <Button
-                                className={`h-8 px-3 text-xs ${n.action.type === "mutation" ? ui.primaryButton : ui.secondaryButton}`}
+                                variant={n.action.type === "mutation" ? "primary" : "secondary"}
+                                size="sm"
+                                className="h-8 min-h-8 px-3 text-xs"
                                 disabled={actionBusyId === n.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -338,7 +372,7 @@ export function NotificationBell() {
                           ) : null}
                         </div>
                         {!n.read ? (
-                          <span className="mt-1 size-2 shrink-0 rounded-full bg-[#C6A36B]" title="Unread" />
+                          <span className="mt-1 size-2 shrink-0 rounded-full bg-lifeos-accent/80" title="Unread" />
                         ) : null}
                       </div>
                     </div>

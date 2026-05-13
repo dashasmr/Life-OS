@@ -1,19 +1,21 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   API_URL,
+  AdaptiveContext,
   CleaningZone,
   DailyReview,
-  DailySummary,
   describeFetchFailure,
   EventItem,
-  EventType,
+  fetchAdaptiveContext,
   FinanceRangeSummary,
   FocusSession,
+  postRecommendationFeedback,
+  RecommendationOutcome,
   TaskItem
 } from "@/lib/api";
 import { cleaningActionLabel, formatSignedEur, pickNextCleaningZone, pickTopPriorityTask } from "@/lib/commandCenter";
@@ -30,69 +32,86 @@ import {
 } from "@/lib/datetime";
 import type { RiskSignal } from "@/lib/risks";
 import { ui } from "@/lib/ui";
+import { dashboard, domain, ds } from "@/styles/design-system";
+import { PageTitle, MutedText } from "@/components/ui/typography";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import { Surface } from "@/components/ui/Surface";
 import { DashboardNotificationsSection } from "@/components/DashboardNotificationsSection";
+import { RecommendationActionCard } from "@/components/recommendations/RecommendationActionCard";
+import { WhyLine } from "@/components/explainability/WhyLine";
 import { useAutomationPrefsEpoch } from "@/hooks/useAutomationPrefsEpoch";
-import { Button } from "@/components/ui/button";
+import { useUserPreferencesEpoch } from "@/hooks/useUserPreferencesEpoch";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { PageSectionSkeleton } from "@/components/ui/skeleton";
 import {
+  extraItemsToPlanRows,
   generateDailyPlan,
   loadDailyPlanCompletedIds,
+  loadExtraDailyPlanItems,
   saveDailyPlanCompletedIds,
   type DailyPlanItem
 } from "@/lib/dailyPlan";
 import { fetchGoalsForPeriod } from "@/lib/goals/api";
 import type { Goal } from "@/lib/goals/types";
 import { runRecommendationsAutomation, type NextActionRecommendation } from "@/lib/recommendations";
-import { computeSystemStatus, type SystemStatusPillar, type SystemStatusTone } from "@/lib/systemStatus";
-import { Brain, Home, ListTodo, Wallet } from "lucide-react";
+import { clearRecommendationCooldown, touchRecommendationCooldown } from "@/lib/recommendations/adaptiveApply";
+import { computeTodayState, type SystemStatusTone, type TodayStateRow } from "@/lib/systemStatus";
+import { sendWithOfflineQueue } from "@/services/offlineQueue";
+import { useLifeOsRealtimeEpoch } from "@/services/realtime";
+import { Brain, Home, ListTodo, Sparkles, Wallet, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 function systemStatusToneStyles(tone: SystemStatusTone): { shell: string; badge: string; glow: string } {
   switch (tone) {
     case "positive":
       return {
-        shell: "border-[#2f4b3a]/70 bg-[#0c1210] shadow-[0_0_0_1px_rgba(47,75,58,0.25)_inset]",
-        badge: "border-[#3d6b52]/80 bg-[#152019] text-[#b7e4c7]",
-        glow: "text-[#7dccb0]"
+        shell:
+          "rounded-ds-input bg-lifeos-inset/90 shadow-inner ring-1 ring-lifeos-status-healthy-border/45",
+        badge: "rounded-md bg-lifeos-success-muted/25 px-ds-2 py-0.5 text-xs font-medium text-lifeos-success",
+        glow: "text-lifeos-success"
       };
     case "caution":
       return {
-        shell: "border-[#6d572f]/70 bg-[#100e0a] shadow-[0_0_0_1px_rgba(109,87,47,0.2)_inset]",
-        badge: "border-[#8a7349]/80 bg-[#221c12] text-[#f3d59e]",
-        glow: "text-[#e8c48a]"
+        shell:
+          "rounded-ds-input bg-lifeos-inset/90 shadow-inner ring-1 ring-lifeos-warning/35",
+        badge: "rounded-md bg-lifeos-warning-muted/25 px-ds-2 py-0.5 text-xs font-medium text-lifeos-warning",
+        glow: "text-lifeos-warning"
       };
     case "critical":
       return {
-        shell: "border-[#7a2b2b]/65 bg-[#120d0d] shadow-[0_0_0_1px_rgba(122,43,43,0.22)_inset]",
-        badge: "border-[#a04444]/70 bg-[#2a1616] text-[#ffb3b3]",
-        glow: "text-[#ff8f8f]"
+        shell:
+          "rounded-ds-input bg-lifeos-danger-muted/15 shadow-inner ring-1 ring-lifeos-status-risk-border/50",
+        badge: "rounded-md bg-lifeos-danger-muted/30 px-ds-2 py-0.5 text-xs font-medium text-lifeos-danger",
+        glow: "text-lifeos-danger"
       };
     default:
       return {
-        shell: "border-[#2A2F36] bg-[#0F1318]",
-        badge: "border-[#2A2F36] bg-[#141A22] text-[#c9d0d8]",
-        glow: "text-[#8A8F98]"
+        shell:
+          "rounded-ds-input bg-lifeos-inset/75 shadow-inner ring-1 ring-lifeos-domain-ai-border/55",
+        badge: "rounded-md bg-lifeos-muted px-ds-2 py-0.5 text-xs font-medium text-lifeos-fg-secondary",
+        glow: "text-lifeos-fg-muted"
       };
   }
 }
 
-function SystemStatusIcon({ pillar }: { pillar: SystemStatusPillar["key"] }) {
+function TodayStateIcon({ rowKey }: { rowKey: TodayStateRow["key"] }) {
   const cls = "size-4 shrink-0 opacity-90";
-  if (pillar === "mind") return <Brain className={cls} strokeWidth={1.75} />;
-  if (pillar === "home") return <Home className={cls} strokeWidth={1.75} />;
-  return <Wallet className={cls} strokeWidth={1.75} />;
+  if (rowKey === "mind") return <Brain className={cls} strokeWidth={1.75} />;
+  if (rowKey === "home") return <Home className={cls} strokeWidth={1.75} />;
+  if (rowKey === "finance") return <Wallet className={cls} strokeWidth={1.75} />;
+  return <Zap className={cls} strokeWidth={1.75} />;
 }
 
 function riskSeverityShell(severity: RiskSignal["severity"]): string {
   if (severity === "high") {
-    return "border-l-[#a04444] bg-[#1a1212]";
+    return "rounded-ds-input bg-lifeos-inset/90 shadow-[inset_3px_0_0_0_rgba(232,152,152,0.55)]";
   }
   if (severity === "medium") {
-    return "border-l-[#8a7349] bg-[#1a1812]";
+    return "rounded-ds-input bg-lifeos-inset/90 shadow-[inset_3px_0_0_0_rgba(220,200,154,0.45)]";
   }
-  return "border-l-[#5a6570] bg-[#141A22]";
+  return "rounded-ds-input bg-lifeos-inset/80 shadow-inner";
 }
 
 function riskSeverityLabel(severity: RiskSignal["severity"]): string {
@@ -101,30 +120,16 @@ function riskSeverityLabel(severity: RiskSignal["severity"]): string {
   return "Low";
 }
 
-const EVENT_TYPES: EventType[] = [
-  "work_started",
-  "focus_started",
-  "focus_ended",
-  "focus_session_completed",
-  "pomodoro_completed",
-  "task_completed",
-  "income_added",
-  "expense_added",
-  "cleaning_done"
-];
-
 export type DashboardTabId = "overview" | "command-center" | "daily-plan" | "recommendations" | "notifications";
 
 export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
   const automationPrefsEpoch = useAutomationPrefsEpoch();
+  const userPrefsEpoch = useUserPreferencesEpoch();
   const router = useRouter();
   const [events, setEvents] = useState<EventItem[]>([]);
-  const [summary, setSummary] = useState<DailySummary | null>(null);
   const [dailyReview, setDailyReview] = useState<DailyReview | null>(null);
   const [dailyReviewLoading, setDailyReviewLoading] = useState(false);
   const [dailyReviewError, setDailyReviewError] = useState<string | null>(null);
-  const [eventType, setEventType] = useState<EventType>("work_started");
-  const [payloadText, setPayloadText] = useState('{"note":"manual event"}');
   const [error, setError] = useState<string | null>(null);
   const [startingFocus, setStartingFocus] = useState(false);
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
@@ -135,9 +140,11 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
   const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
   const [recActionBusy, setRecActionBusy] = useState<string | null>(null);
   const [planCompletedIds, setPlanCompletedIds] = useState<Set<string>>(() => new Set());
+  const [extraPlanEpoch, setExtraPlanEpoch] = useState(0);
   const [riskSignals, setRiskSignals] = useState<RiskSignal[]>([]);
   const [automationGoals, setAutomationGoals] = useState<Goal[]>([]);
-  const showDebugTools = process.env.NODE_ENV === "development";
+  const [adaptiveContext, setAdaptiveContext] = useState<AdaptiveContext | null>(null);
+  const realtimeEpoch = useLifeOsRealtimeEpoch();
 
   // Large limit so same-day KPIs and recommendations see the full recent log (see `computeDailyStats` caveats).
   async function loadEvents() {
@@ -145,12 +152,6 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
     if (!response.ok) throw new Error("Failed to fetch events");
     const rawItems = (await response.json()) as Array<Omit<EventItem, "type"> & { type: string }>;
     setEvents(normalizeAnalyticsEvents(rawItems));
-  }
-
-  async function loadSummary() {
-    const response = await fetch(`${API_URL}/analytics/daily-summary`, { cache: "no-store" });
-    if (!response.ok) throw new Error("Failed to fetch daily summary");
-    setSummary(await response.json());
   }
 
   async function loadCommandCenterTasks() {
@@ -214,16 +215,46 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
     }
   }
 
+  const loadAdaptiveContext = useCallback(async () => {
+    try {
+      const ctx = await fetchAdaptiveContext();
+      setAdaptiveContext(ctx);
+    } catch {
+      setAdaptiveContext(null);
+    }
+  }, []);
+
+  const submitRecFeedback = useCallback(
+    async (recommendationId: string, outcome: RecommendationOutcome) => {
+      try {
+        await postRecommendationFeedback({
+          recommendation_id: recommendationId,
+          outcome,
+          local_hour: new Date().getHours()
+        });
+        if (outcome === "accepted") {
+          clearRecommendationCooldown(recommendationId);
+        } else {
+          touchRecommendationCooldown(recommendationId);
+        }
+        await loadAdaptiveContext();
+      } catch {
+        /* Feedback is best-effort; engine still works without it. */
+      }
+    },
+    [loadAdaptiveContext]
+  );
+
   async function refreshRecommendationDrivers() {
     await Promise.all([
       loadCommandCenterZones(),
       loadFocusSessions(),
       loadCommandCenterTasks(),
       loadFinanceRangeSummaries(),
-      loadSummary(),
       loadEvents(),
       loadRiskSignals(),
-      loadAutomationGoals()
+      loadAutomationGoals(),
+      loadAdaptiveContext()
     ]);
   }
 
@@ -256,24 +287,36 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
   useEffect(() => {
     Promise.all([
       loadEvents(),
-      loadSummary(),
       loadCommandCenterTasks(),
       loadCommandCenterZones(),
       loadFinanceRangeSummaries(),
       loadFocusSessions(),
       loadRiskSignals(),
-      loadAutomationGoals()
+      loadAutomationGoals(),
+      loadAdaptiveContext()
     ]).catch((err: unknown) => {
       setError(describeFetchFailure(err));
     });
   }, []);
 
   useEffect(() => {
+    if (realtimeEpoch === 0) return;
+    void refreshRecommendationDrivers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: refresh only on SSE epoch bump
+  }, [realtimeEpoch]);
+
+  useEffect(() => {
     setPlanCompletedIds(loadDailyPlanCompletedIds(new Date()));
   }, []);
 
   useEffect(() => {
-    if (tab !== "recommendations") return;
+    const bump = () => setExtraPlanEpoch((n) => n + 1);
+    window.addEventListener("lifeos-daily-plan-extra-changed", bump);
+    return () => window.removeEventListener("lifeos-daily-plan-extra-changed", bump);
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "recommendations" && tab !== "overview") return;
     const d = localCalendarDayKeyFromDate(new Date());
     let cancelled = false;
     fetch(`${API_URL}/ai/reviews/${d}`, { cache: "no-store" })
@@ -287,43 +330,23 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
     };
   }, [tab]);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(payloadText);
-    } catch {
-      setError("Payload must be valid JSON");
-      return;
-    }
-    try {
-      const response = await fetch(`${API_URL}/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: eventType, source: "web", payload })
-      });
-      if (!response.ok) {
-        setError("Failed to create event");
-        return;
-      }
-      setPayloadText('{"note":"manual event"}');
-      await loadEvents();
-    } catch (e: unknown) {
-      setError(describeFetchFailure(e));
-    }
-  }
-
   async function onStartFocusFromQuickAction() {
     setError(null);
     setStartingFocus(true);
     try {
-      const response = await fetch(`${API_URL}/focus/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: null })
-      });
-      if (!response.ok) {
+      const body = { label: null, task_id: null };
+      const result = await sendWithOfflineQueue({ kind: "focus_start", body }, () =>
+        fetch(`${API_URL}/focus/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+      );
+      if (result.mode === "queued") {
+        toast.info("Pending sync", { description: "Saved offline. Syncs when you are online." });
+        return;
+      }
+      if (!result.response.ok) {
         setError("Failed to start focus session");
         toast.error("Failed to start focus session");
         return;
@@ -339,30 +362,30 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
     }
   }
 
-  // Event-sourced metrics for today (tasks/focus/cleaning/expense signals). Income KPI still uses `DailySummary`.
+  // Event-sourced metrics for today (tasks/focus/cleaning/expense signals).
   const dailyStatsFromEvents = useMemo(() => {
     const dayKey = localCalendarDayKeyFromDate(new Date());
     return computeDailyStats(events, dayKey);
   }, [events]);
 
-  const kpis = [
-    { label: "Tasks", value: dailyStatsFromEvents.tasksCompleted },
-    { label: "Focus", value: `${dailyStatsFromEvents.focusMinutes}m` },
-    { label: "Income", value: `$${(summary?.income_total ?? 0).toFixed(0)}` },
-    { label: "Balance", value: `${(summary?.balance_delta ?? 0).toFixed(0)}` }
-  ];
-  const recentEvents = useMemo(() => events.slice(0, 3), [events]);
   const topTask = pickTopPriorityTask(commandTasks);
   const nextZone = pickNextCleaningZone(commandZones);
-  const systemPillars = useMemo(
+  const todayStateRows = useMemo(
     () =>
-      computeSystemStatus({
+      computeTodayState({
         tasksCompletedToday: dailyStatsFromEvents.tasksCompleted,
         focusSessions,
         cleaningZones: commandZones,
-        monthlyBalanceDelta: financeMonth?.balance_delta ?? null
+        monthlyBalanceDelta: financeMonth?.balance_delta ?? null,
+        focusMinutesToday: dailyStatsFromEvents.focusMinutes
       }),
-    [dailyStatsFromEvents.tasksCompleted, focusSessions, commandZones, financeMonth?.balance_delta]
+    [
+      dailyStatsFromEvents.tasksCompleted,
+      dailyStatsFromEvents.focusMinutes,
+      focusSessions,
+      commandZones,
+      financeMonth?.balance_delta
+    ]
   );
 
   const recommendationAutomation = useMemo(() => {
@@ -378,6 +401,7 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
         tasksCompleted: dailyStatsFromEvents.tasksCompleted,
         focusMinutes: dailyStatsFromEvents.focusMinutes
       },
+      adaptiveContext,
       now
     });
   }, [
@@ -389,13 +413,15 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
     dailyStatsFromEvents.focusMinutes,
     events,
     automationGoals,
-    automationPrefsEpoch
+    adaptiveContext,
+    automationPrefsEpoch,
+    userPrefsEpoch
   ]);
   const nextActions = recommendationAutomation.recommendations;
   const automationRiskSignals = recommendationAutomation.automationRiskSignals;
   const automationPositiveInsights = recommendationAutomation.positiveInsights;
 
-  const dailyPlanBase = useMemo(
+  const dailyPlanGenerated = useMemo(
     () =>
       generateDailyPlan({
         tasks: commandTasks,
@@ -403,12 +429,22 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
         focusSessions,
         expensesTodayTotal: dailyStatsFromEvents.expensesTotal
       }),
-    [commandTasks, commandZones, focusSessions, dailyStatsFromEvents.expensesTotal]
+    [commandTasks, commandZones, focusSessions, dailyStatsFromEvents.expensesTotal, userPrefsEpoch]
   );
 
-  const dailyPlanItems: DailyPlanItem[] = useMemo(
-    () => dailyPlanBase.map((row) => ({ ...row, completed: planCompletedIds.has(row.id) })),
-    [dailyPlanBase, planCompletedIds]
+  const extraPlanStored = useMemo(() => loadExtraDailyPlanItems(new Date()), [extraPlanEpoch]);
+
+  const dailyPlanItems: DailyPlanItem[] = useMemo(() => {
+    const genRows = dailyPlanGenerated.map((row) => ({ ...row, completed: planCompletedIds.has(row.id) }));
+    const extraRows = extraItemsToPlanRows(extraPlanStored, planCompletedIds);
+    return [...extraRows, ...genRows];
+  }, [dailyPlanGenerated, extraPlanStored, planCompletedIds]);
+
+  const primaryNextAction = nextActions[0] ?? null;
+  const overviewDailyPlanItems = useMemo(() => dailyPlanItems.slice(0, 5), [dailyPlanItems]);
+  const importantRiskSignals = useMemo(
+    () => riskSignals.filter((r) => r.severity === "high" || r.severity === "medium"),
+    [riskSignals]
   );
 
   function toggleDailyPlanItem(id: string) {
@@ -428,28 +464,52 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
     setError(null);
     try {
       if (pa.kind === "cleaning_mark_done") {
-        const res = await fetch(`${API_URL}/cleaning/zones/${pa.zoneId}/done`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({})
-        });
-        if (!res.ok) throw new Error("Failed to mark cleaning as done");
+        const result = await sendWithOfflineQueue({ kind: "cleaning_done", zoneId: pa.zoneId }, () =>
+          fetch(`${API_URL}/cleaning/zones/${pa.zoneId}/done`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({})
+          })
+        );
+        if (result.mode === "queued") {
+          toast.info("Pending sync", { description: "Saved offline. Syncs when you are online." });
+          await submitRecFeedback(item.id, "accepted");
+          await refreshRecommendationDrivers();
+          return;
+        }
+        if (!result.response.ok) throw new Error("Failed to mark cleaning as done");
         toast.success("Marked as cleaned");
+        await submitRecFeedback(item.id, "accepted");
         await refreshRecommendationDrivers();
       } else if (pa.kind === "focus_start") {
-        const res = await fetch(`${API_URL}/focus/sessions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label: null, task_id: null })
-        });
-        if (!res.ok) throw new Error("Failed to start focus session");
+        const result = await sendWithOfflineQueue(
+          { kind: "focus_start", body: { label: null, task_id: null } },
+          () =>
+            fetch(`${API_URL}/focus/sessions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ label: null, task_id: null })
+            })
+        );
+        if (result.mode === "queued") {
+          toast.info("Pending sync", { description: "Saved offline. Syncs when you are online." });
+          await submitRecFeedback(item.id, "accepted");
+          await refreshRecommendationDrivers();
+          return;
+        }
+        if (!result.response.ok) throw new Error("Failed to start focus session");
         toast.success("Focus session started");
+        await submitRecFeedback(item.id, "accepted");
         await refreshRecommendationDrivers();
         router.push("/work/focus");
       } else if (pa.kind === "navigate") {
+        await submitRecFeedback(item.id, "accepted");
         router.push(pa.href as Route);
+        await refreshRecommendationDrivers();
       } else if (pa.kind === "task_open") {
+        await submitRecFeedback(item.id, "accepted");
         router.push((pa.taskId ? `/work/tasks?highlight=${encodeURIComponent(pa.taskId)}` : "/work/tasks") as Route);
+        await refreshRecommendationDrivers();
       }
     } catch (e: unknown) {
       toast.error("Action failed");
@@ -474,168 +534,106 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
   }
 
   function nextActionPriorityClass(p: NextActionRecommendation["priority"]): string {
-    if (p === "high") return "border-[#7a2b2b]/50 bg-[#2a1616] text-[#ffb3b3]";
-    if (p === "medium") return "border-[#6d572f]/50 bg-[#2a2418] text-[#f3d59e]";
-    return "border-[#2A2F36] bg-[#141A22] text-[#8A8F98]";
-  }
-
-  function formatPayloadValue(value: unknown): string {
-    if (value === null || value === undefined) return "—";
-    if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
-    if (typeof value === "boolean") return value ? "Yes" : "No";
-    return String(value);
-  }
-
-  function eventDetails(item: EventItem): Array<{ label: string; value: string }> {
-    const payload = item.payload as Record<string, unknown>;
-
-    switch (item.type) {
-      case "work_started":
-        return [{ label: "Note", value: formatPayloadValue(payload.note) }];
-      case "focus_started": {
-        const rows: Array<{ label: string; value: string }> = [{ label: "Label", value: formatPayloadValue(payload.label) }];
-        if (payload.task_title != null && String(payload.task_title).length > 0) {
-          rows.push({ label: "Task", value: formatPayloadValue(payload.task_title) });
-        }
-        return rows;
-      }
-      case "focus_ended":
-        return [{ label: "Duration", value: `${Math.round(Number(payload.duration_seconds ?? 0))} sec` }];
-      case "focus_session_completed": {
-        const rows: Array<{ label: string; value: string }> = [
-          { label: "Duration", value: `${formatPayloadValue(payload.duration_minutes)} min` }
-        ];
-        if (payload.task_title != null && String(payload.task_title).length > 0) {
-          rows.push({ label: "Task", value: formatPayloadValue(payload.task_title) });
-        } else {
-          rows.push({ label: "Mode", value: "General focus" });
-        }
-        return rows;
-      }
-      case "pomodoro_completed": {
-        const rows: Array<{ label: string; value: string }> = [
-          { label: "Work", value: `${formatPayloadValue(payload.work_minutes)} min` },
-          { label: "Break", value: `${formatPayloadValue(payload.break_minutes)} min` }
-        ];
-        if (payload.task_title != null && String(payload.task_title).length > 0) {
-          rows.push({ label: "Task", value: formatPayloadValue(payload.task_title) });
-        }
-        return rows;
-      }
-      case "income_added":
-      case "expense_added":
-        return [
-          { label: "Category", value: formatPayloadValue(payload.category) },
-          { label: "Amount", value: formatPayloadValue(payload.amount) }
-        ];
-      case "cleaning_done":
-        return [{ label: "Zone", value: formatPayloadValue(payload.zone_name) }];
-      case "task_completed":
-        return [
-          { label: "Task", value: formatPayloadValue(payload.title) },
-          { label: "Status", value: formatPayloadValue(payload.status) }
-        ];
-      default:
-        return Object.entries(payload).map(([key, value]) => ({
-          label: key.replaceAll("_", " "),
-          value: formatPayloadValue(value)
-        }));
-    }
+    if (p === "high") return "bg-lifeos-danger-muted/22 text-lifeos-danger shadow-sm";
+    if (p === "medium") return "bg-lifeos-warning-muted/18 text-lifeos-warning shadow-sm";
+    return "bg-lifeos-muted/70 text-lifeos-fg-muted shadow-sm";
   }
 
   return (
     <div className={ui.contentClass}>
-      {error && <p className="text-[#f7b0a2]">{error}</p>}
+      {error && <p className="text-lifeos-danger">{error}</p>}
 
       <div className="flex flex-col gap-5 max-md:gap-4 md:gap-6">
       {tab === "command-center" ? (
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-6 md:p-8">
+      <section className={ds.surfaces.contentPanel}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Today Command Center</h2>
-            <p className={`mt-1 text-sm ${ui.mutedText}`}>What matters most right now</p>
+            <h2 className="text-lifeos-section font-semibold tracking-tight text-lifeos-fg">Command Center</h2>
+            <p className={`mt-1 text-sm ${ui.mutedText}`}>What matters most today</p>
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">Top priority task</p>
-            {topTask ? (
-              <div className="mt-3 space-y-2">
-                <p className="text-lg font-medium text-white">{topTask.title}</p>
-                <p className={`text-sm ${ui.mutedText}`}>
-                  High priority
-                  {topTask.due_date ? ` · Due ${formatDateFiNumeric(topTask.due_date)}` : ""}
-                </p>
-                <Link href="/work/tasks" className={`${ui.secondaryButton} mt-2 inline-flex`}>
-                  Open tasks
-                </Link>
-              </div>
-            ) : (
-              <div className="mt-3 space-y-2">
-                <p className="text-lg font-medium text-white">No priority task yet</p>
-                <p className={`text-sm ${ui.mutedText}`}>Create a task marked high priority to surface it here.</p>
-                <Link href="/work/tasks" className={`${ui.secondaryButton} mt-2 inline-flex`}>
-                  Add a high-priority task
-                </Link>
-              </div>
-            )}
-          </Card>
-
-          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">Next cleaning action</p>
-            {nextZone ? (
-              <div className="mt-3 space-y-2">
-                <p className="text-lg font-medium text-white">{cleaningActionLabel(nextZone)}</p>
-                <p className={`text-sm ${ui.mutedText}`}>Every {nextZone.frequency_days} days</p>
-                <Link href="/life/cleaning" className={`${ui.secondaryButton} mt-2 inline-flex`}>
-                  Open cleaning
-                </Link>
-              </div>
-            ) : (
-              <div className="mt-3 space-y-2">
-                <p className="text-lg font-medium text-white">No cleaning zones yet</p>
-                <p className={`text-sm ${ui.mutedText}`}>Add zones to track what needs attention.</p>
-                <Link href="/life/cleaning" className={`${ui.secondaryButton} mt-2 inline-flex`}>
-                  Add a zone
-                </Link>
-              </div>
-            )}
-          </Card>
-
-          <Card className={`${ui.card} border-[#2A2F36] bg-[#0F1318]`}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#C6A36B]">Financial snapshot</p>
-            <div className="mt-3 space-y-3">
-              <div>
-                <p className={`text-sm ${ui.mutedText}`}>Today balance</p>
-                <p className="mt-1 text-2xl font-semibold text-white">
-                  {financeToday ? formatSignedEur(financeToday.balance_delta) : "—"}
-                </p>
-              </div>
-              <div>
-                <p className={`text-sm ${ui.mutedText}`}>Monthly balance</p>
-                <p className="mt-1 text-2xl font-semibold text-white">
-                  {financeMonth ? formatSignedEur(financeMonth.balance_delta) : "—"}
-                </p>
-              </div>
-              <p className={`text-xs ${ui.mutedText}`}>
-                Full-month totals from the server (all transactions in your local calendar day/month).
-              </p>
-              <Link href="/finance/dashboard" className={`${ui.secondaryButton} inline-flex`}>
-                Open finance
-              </Link>
+        <div className={cn(ds.surfaces.metricBand, "mt-ds-4")}>
+          <div className="grid grid-cols-1 gap-ds-4 lg:grid-cols-3">
+            <div className="min-w-0 space-y-ds-2">
+              <p className="text-lifeos-caption font-medium text-lifeos-accent">Priority task</p>
+              {topTask ? (
+                <div className="space-y-ds-2">
+                  <p className="text-lg font-medium text-lifeos-fg">{topTask.title}</p>
+                  <p className={`text-sm ${ui.mutedText}`}>
+                    High priority
+                    {topTask.due_date ? ` · Due ${formatDateFiNumeric(topTask.due_date)}` : ""}
+                  </p>
+                  <Link href="/work/tasks" className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}>
+                    Open tasks
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-ds-2">
+                  <p className="text-lg font-medium text-lifeos-fg">No priority task yet</p>
+                  <p className={`text-sm ${ui.mutedText}`}>Add a task and mark it high priority.</p>
+                  <Link href="/work/tasks" className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}>
+                    Add a high-priority task
+                  </Link>
+                </div>
+              )}
             </div>
-          </Card>
+
+            <div className="min-w-0 space-y-ds-2">
+              <p className="text-lifeos-caption font-medium text-lifeos-accent">Cleaning</p>
+              {nextZone ? (
+                <div className="space-y-ds-2">
+                  <p className="text-lg font-medium text-lifeos-fg">{cleaningActionLabel(nextZone)}</p>
+                  <p className={`text-sm ${ui.mutedText}`}>Every {nextZone.frequency_days} days</p>
+                  <Link href="/life/cleaning" className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}>
+                    Open cleaning
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-ds-2">
+                  <p className="text-lg font-medium text-lifeos-fg">No cleaning zones yet</p>
+                  <p className={`text-sm ${ui.mutedText}`}>Add zones to see them here.</p>
+                  <Link href="/life/cleaning" className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}>
+                    Add a zone
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className={cn("min-w-0 space-y-ds-2", domain.finance, "rounded-ds-input p-ds-3")}>
+              <p className="text-lifeos-caption font-medium text-lifeos-success">Finances</p>
+              <div className="space-y-ds-3">
+                <div>
+                  <p className={`text-sm ${ui.mutedText}`}>Today balance</p>
+                  <p className="mt-0.5 text-xl font-semibold tabular-nums text-lifeos-fg">
+                    {financeToday ? formatSignedEur(financeToday.balance_delta) : "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-sm ${ui.mutedText}`}>Monthly balance</p>
+                  <p className="mt-0.5 text-xl font-semibold tabular-nums text-lifeos-fg">
+                    {financeMonth ? formatSignedEur(financeMonth.balance_delta) : "-"}
+                  </p>
+                </div>
+                <p className={`text-xs ${ui.mutedText}`}>
+                  Full-month totals from the server (all transactions in your local calendar day/month).
+                </p>
+                <Link href="/finance/dashboard" className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}>
+                  Open finance
+                </Link>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
       ) : null}
 
       {tab === "daily-plan" ? (
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
+      <section className={ds.surfaces.contentPanelCompact}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Daily Plan</h2>
-            <p className={`mt-1 text-sm ${ui.mutedText}`}>Check off a short list built from your real signals for today.</p>
+            <h2 className="text-lifeos-section font-semibold tracking-tight text-lifeos-fg">Today</h2>
+            <p className={`mt-1 text-sm ${ui.mutedText}`}>A short checklist from your day.</p>
           </div>
         </div>
 
@@ -644,33 +642,33 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
             {dailyPlanItems.map((item) => (
               <li key={item.id}>
                 <label
-                  className={`flex min-h-[44px] cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors md:px-5 md:py-4 ${
+                  className={`flex min-h-[44px] cursor-pointer items-start gap-3 rounded-xl px-4 py-3 transition-colors md:px-5 md:py-4 ${
                     item.completed
-                      ? "border-[#2A2F36]/80 bg-[#0c0f12] opacity-75"
-                      : "border-[#2A2F36] bg-[#0F1318] hover:border-[#3d4652]"
+                      ? "bg-lifeos-page/70 opacity-75"
+                      : "bg-lifeos-muted/35 shadow-inner hover:bg-lifeos-hover/35"
                   }`}
                 >
                   <input
                     checked={item.completed}
-                    className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-[#3d4652] bg-[#141A22] text-[#C6A36B] accent-[#C6A36B] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C6A36B]/60"
+                    className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-lifeos-border bg-lifeos-muted text-lifeos-accent accent-lifeos-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lifeos-accent/60"
                     onChange={() => toggleDailyPlanItem(item.id)}
                     type="checkbox"
                   />
                   <span className="min-w-0 flex-1">
                     <span
                       className={`block text-base font-medium leading-snug ${
-                        item.completed ? "text-[#8A8F98] line-through decoration-[#5c6370]" : "text-white"
+                        item.completed ? "text-lifeos-fg-muted line-through decoration-lifeos-border" : "text-lifeos-fg"
                       }`}
                     >
                       {item.title}
                     </span>
                     <span className="mt-2 flex flex-wrap items-center gap-2">
                       <span
-                        className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${nextActionPriorityClass(item.priority)}`}
+                        className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${nextActionPriorityClass(item.priority)}`}
                       >
                         {item.priority}
                       </span>
-                      <span className="rounded-md border border-[#2A2F36] bg-[#141A22] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#C6A36B]">
+                      <span className="rounded-md bg-lifeos-muted/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-lifeos-accent shadow-sm">
                         {dailyPlanCategoryLabel(item.category)}
                       </span>
                     </span>
@@ -680,11 +678,11 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
             ))}
           </ul>
         ) : (
-          <div className="mt-4 flex gap-3 rounded-lg border border-[#2A2F36] bg-[#141A22]/60 px-3 py-2.5 sm:items-center">
-            <ListTodo className="size-4 shrink-0 text-[#6B7280]" strokeWidth={1.75} aria-hidden />
+          <div className={cn("mt-4 flex gap-3 sm:items-center", ds.surfaces.toneWell)}>
+            <ListTodo className="size-4 shrink-0 text-lifeos-fg-muted" strokeWidth={1.75} aria-hidden />
             <p className={`text-sm ${ui.mutedText}`}>
-              <span className="font-medium text-[#c9d0d8]">Nothing to plan yet.</span> Add a high-priority task, spending, or
-              cleaning zones — items appear here automatically.
+              <span className="font-medium text-lifeos-fg-secondary">Nothing here yet.</span> Add a task, spending, or a cleaning zone.
+              The list updates as you go.
             </p>
           </div>
         )}
@@ -694,12 +692,13 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
       {tab === "recommendations" ? (
       <>
       {automationPositiveInsights.length > 0 ? (
-        <section className="mb-4 rounded-2xl border border-[#2f4b3a]/60 bg-[#0c1210] p-5 md:p-6">
-          <h2 className="text-lg font-semibold text-[#b7e4c7]">Automation · positive signal</h2>
+        <section className="mb-4 rounded-ds-card bg-lifeos-status-healthy-bg p-5 shadow-surface-secondary md:p-6">
+          <h2 className="text-lifeos-card-title font-semibold tracking-tight text-lifeos-status-healthy">On track</h2>
           <ul className="mt-3 space-y-2">
-            {automationPositiveInsights.map((line, i) => (
-              <li key={`insight-${i}`} className={`text-sm leading-relaxed text-[#d8ebe0]`}>
-                {line}
+            {automationPositiveInsights.map((insight, i) => (
+              <li key={`insight-${i}`} className="text-sm leading-relaxed text-lifeos-fg">
+                <p>{insight.message}</p>
+                <WhyLine text={insight.explanation} />
               </li>
             ))}
           </ul>
@@ -707,21 +706,22 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
       ) : null}
 
       {automationRiskSignals.length > 0 ? (
-        <section className="mb-4 rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
-          <h2 className="text-lg font-semibold text-white">Automation · goal risk</h2>
-          <p className={`mt-1 text-sm ${ui.mutedText}`}>Generated when tracked goals fall behind for the current week or month.</p>
+        <section className={cn("mb-4", ds.surfaces.contentPanelCompact)}>
+          <h2 className="text-lifeos-card-title font-semibold tracking-tight text-lifeos-fg">Goals behind</h2>
+          <p className={`mt-1 text-sm ${ui.mutedText}`}>When weekly or monthly goals slip.</p>
           <ul className="mt-4 space-y-2">
             {automationRiskSignals.map((sig) => (
               <li
                 key={sig.id}
-                className={`rounded-lg border border-l-4 border-[#2A2F36] px-3 py-2.5 text-sm text-[#e8eaed] ${riskSeverityShell(sig.severity)}`}
+                className={`rounded-lg px-3 py-2.5 text-sm text-lifeos-fg ${riskSeverityShell(sig.severity)}`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span>{sig.message}</span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8A8F98]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-lifeos-fg-muted">
                     {riskSeverityLabel(sig.severity)}
                   </span>
                 </div>
+                <WhyLine text={sig.explanation} />
                 <p className={`mt-1 text-xs tabular-nums ${ui.mutedText}`} suppressHydrationWarning>
                   {formatDateTimeFiNumeric(sig.detectedAt)}
                 </p>
@@ -731,11 +731,11 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
         </section>
       ) : null}
 
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
+      <section className={ds.surfaces.contentPanelCompact}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Recommended next actions</h2>
-            <p className={`mt-1 text-sm ${ui.mutedText}`}>One-tap moves tied to your data — do these before tweaking analytics.</p>
+            <h2 className="text-lifeos-section font-semibold tracking-tight text-lifeos-fg">Next steps</h2>
+            <p className={`mt-1 text-sm ${ui.mutedText}`}>Based on what you&apos;ve logged.</p>
           </div>
         </div>
 
@@ -743,123 +743,94 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
           <ul className="mt-5 space-y-3">
             {nextActions.map((action) => (
               <li key={action.id}>
-                <article className="flex flex-col gap-4 rounded-xl border border-[#2A2F36] bg-[#0F1318] p-4 sm:flex-row sm:items-start sm:justify-between md:p-5">
-                  <div className="flex min-w-0 flex-1 gap-4">
-                    <span className="text-2xl leading-none" aria-hidden>
-                      {action.icon}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-base font-medium leading-snug text-white">{action.message}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${nextActionPriorityClass(action.priority)}`}
-                        >
-                          {action.priority}
-                        </span>
-                        <span className="rounded-md border border-[#2A2F36] bg-[#141A22] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#C6A36B]">
-                          {nextActionCategoryLabel(action.type)}
-                        </span>
-                        <span
-                          className={`text-xs tabular-nums ${ui.mutedText}`}
-                          suppressHydrationWarning
-                          title="Generated when this list was computed"
-                        >
-                          {formatDateTimeFiNumeric(action.generatedAt)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  {action.primaryAction ? (
-                    <Button
-                      className={`${ui.primaryButton} min-h-11 w-full shrink-0 self-stretch sm:w-auto sm:self-center`}
-                      disabled={recActionBusy === action.id}
-                      onClick={() => runRecommendationPrimaryAction(action)}
-                      type="button"
-                    >
-                      {recActionBusy === action.id ? "Working…" : action.primaryAction.buttonLabel}
-                    </Button>
-                  ) : null}
-                </article>
+                <RecommendationActionCard
+                  action={action}
+                  busy={recActionBusy === action.id}
+                  mutedTextClass={ui.mutedText}
+                  formatDateTimeFiNumeric={formatDateTimeFiNumeric}
+                  nextActionCategoryLabel={nextActionCategoryLabel}
+                  nextActionPriorityClass={nextActionPriorityClass}
+                  onDismiss={() => void submitRecFeedback(action.id, "dismissed")}
+                  onImplicitIgnore={() => void submitRecFeedback(action.id, "ignored")}
+                  onPrimary={() => runRecommendationPrimaryAction(action)}
+                />
               </li>
             ))}
           </ul>
         ) : (
-          <div className="mt-4 rounded-lg border border-[#2A2F36] bg-[#141A22]/60 px-3 py-2.5">
+          <div className={cn("mt-4", ds.surfaces.toneWell)}>
             <p className={`text-sm ${ui.mutedText}`}>
-              <span className="font-medium text-[#c9d0d8]">Nothing urgent.</span> You&apos;re within thresholds — check back as
-              the day changes.
+              <span className="font-medium text-lifeos-fg-secondary">Nothing urgent.</span> You&apos;re in range. Check back later.
             </p>
           </div>
         )}
       </section>
 
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1.3fr_0.7fr]">
-        <div className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-white">AI Daily Review</h2>
-              <p className={`mt-1 text-sm ${ui.mutedText}`}>
-                Narrative review from your data (events, tasks, zones, finance). Not a chat — one structured pass per
-                generation. Reviews are saved per day; opening this tab loads today's copy if it exists. Date uses
-                the same UTC calendar day as server analytics.
-              </p>
-              <Link href="/insights/ai-reviews" className={`mt-2 inline-block text-sm text-[#C6A36B] underline-offset-2 hover:underline`}>
-                AI Review History
-              </Link>
+        <div className={cn("rounded-ds-card bg-lifeos-elevated p-ds-6 shadow-surface-secondary md:p-ds-7", domain.ai)}>
+          <div className="flex flex-col gap-ds-6 md:flex-row md:items-center md:justify-between md:gap-ds-8">
+            <div className="min-w-0">
+              <h2 className="mt-ds-3 text-lifeos-card-title font-semibold tracking-tight text-lifeos-fg">Today&apos;s review</h2>
+              <p className="mt-4 text-sm leading-relaxed text-lifeos-fg-muted">One note per day. Older days live in History.</p>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Button
-                className={`${ui.primaryButton} min-h-11`}
-                disabled={dailyReviewLoading}
-                onClick={() => void generateDailyReview(false)}
-                type="button"
-              >
-                {dailyReviewLoading ? "Working…" : "Get today's review"}
-              </Button>
-              <Button
-                className={`${ui.secondaryButton} min-h-11`}
-                disabled={dailyReviewLoading}
-                onClick={() => void generateDailyReview(true)}
-                type="button"
-              >
-                Regenerate
-              </Button>
-            </div>
+            <Link
+              href="/insights/ai-reviews"
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex shrink-0 md:self-center")}
+            >
+              History
+            </Link>
           </div>
 
           {dailyReviewError && (
-            <p className="mt-4 rounded-lg border border-[#5c2a2a]/60 bg-[#1a1010] px-3 py-2 text-sm text-[#ffb3b3]">
-              {dailyReviewError}. Try again when the API is reachable.
+            <p className="mt-4 rounded-ds-card bg-lifeos-danger-muted/22 px-3 py-2 text-sm text-lifeos-danger shadow-inner">
+              {dailyReviewError}. Retry when you are online.
             </p>
           )}
 
           {dailyReview?.from_storage && !dailyReviewError && (
-            <p className="mt-4 rounded-lg border border-[#2A2F36] bg-[#141A22] px-3 py-2 text-sm text-[#c9d0d8]">
-              Showing the saved review for this date. Use <span className="font-medium text-white">Regenerate</span> to
-              rebuild from the latest data (replaces the stored version).
+            <p className="mt-4 rounded-lg bg-lifeos-muted/80 px-3 py-2 text-sm text-lifeos-fg-secondary">
+              Saved for today. Run again to refresh.
             </p>
           )}
 
           {dailyReview?.fallback && !dailyReviewError && (
-            <p className="mt-4 rounded-lg border border-[#6d572f]/50 bg-[#141008] px-3 py-2 text-sm text-[#f3d59e]">
-              AI provider unavailable or returned an error — showing an offline rule-based review instead.
+            <p className="mt-4 rounded-lg bg-lifeos-warning-muted/15 px-3 py-2 text-sm text-lifeos-warning">
+              Using a simple on-device version for now.
             </p>
           )}
 
+          {dailyReviewLoading && !dailyReview && (
+            <div className="mt-ds-6">
+              <PageSectionSkeleton />
+            </div>
+          )}
+
           {dailyReview && (
-            <div className="mt-6 space-y-6">
-              <div>
-                <h3 className="text-base font-semibold text-[#C6A36B]">{dailyReview.title}</h3>
-                <p className={`mt-2 text-sm leading-relaxed text-[#E5E5E5]`}>{dailyReview.summary}</p>
+            <div className="mt-ds-6 space-y-ds-6">
+              <div className="rounded-ds-card bg-lifeos-inset/70 px-ds-5 py-ds-5 md:px-ds-6 md:py-ds-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <h3 className="text-base font-semibold text-lifeos-accent">{dailyReview.title}</h3>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="shrink-0 self-start sm:self-center"
+                    disabled={dailyReviewLoading}
+                    onClick={() => void generateDailyReview(true)}
+                    type="button"
+                  >
+                    Refresh
+                  </Button>
+                </div>
+                <p className={`mt-ds-4 text-sm leading-relaxed text-lifeos-fg`}>{dailyReview.summary}</p>
               </div>
               <div className="grid gap-5 md:grid-cols-2">
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">What went well</h4>
+                  <h4 className="text-lifeos-caption font-medium text-lifeos-fg-muted">What went well</h4>
                   <ul className="mt-2 space-y-2">
                     {dailyReview.wins.map((line, i) => (
                       <li
                         key={`win-${i}-${line.slice(0, 24)}`}
-                        className="rounded-lg border border-[#2f4b3a]/50 bg-[#0c1210] px-3 py-2 text-sm text-[#b7e4c7]"
+                        className="rounded-lg bg-lifeos-status-healthy-bg/80 px-3 py-2 text-sm text-lifeos-status-healthy"
                       >
                         {line}
                       </li>
@@ -867,12 +838,12 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
                   </ul>
                 </div>
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">Needs attention</h4>
+                  <h4 className="text-lifeos-caption font-medium text-lifeos-fg-muted">Needs attention</h4>
                   <ul className="mt-2 space-y-2">
                     {dailyReview.concerns.map((line, i) => (
                       <li
                         key={`concern-${i}-${line.slice(0, 24)}`}
-                        className="rounded-lg border border-[#6d572f]/45 bg-[#100e0a] px-3 py-2 text-sm text-[#f3d59e]"
+                        className="rounded-lg bg-lifeos-warning-muted/15 px-3 py-2 text-sm text-lifeos-warning"
                       >
                         {line}
                       </li>
@@ -881,8 +852,8 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
                 </div>
               </div>
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">Tomorrow</h4>
-                <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-[#E5E5E5]">
+                <h4 className="text-lifeos-caption font-medium text-lifeos-fg-muted">Tomorrow</h4>
+                <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-lifeos-fg">
                   {dailyReview.tomorrowPlan.map((line, i) => (
                     <li key={`tm-${i}-${line.slice(0, 24)}`} className="leading-relaxed">
                       {line}
@@ -894,18 +865,35 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
           )}
 
           {!dailyReview && !dailyReviewLoading && !dailyReviewError && (
-            <p className={`mt-6 rounded-lg border border-[#2A2F36] bg-[#141A22]/50 px-3 py-2 text-sm ${ui.mutedText}`}>
-              No saved review for today yet — tap <span className="text-[#c9d0d8]">Generate review</span> to build and
-              store one from today's context.
-            </p>
+            <div className="mt-ds-6 flex flex-col gap-5 rounded-ds-card bg-lifeos-inset/90 px-8 py-8 shadow-inner sm:flex-row sm:items-start md:px-10 md:py-8">
+              <Sparkles className="size-10 shrink-0 text-lifeos-accent/25 motion-safe:animate-lifeos-soft-in" strokeWidth={1.25} aria-hidden />
+              <div className="min-w-0 flex-1 text-left">
+                <p className="text-lifeos-section font-semibold text-lifeos-fg">Today&apos;s review</p>
+                <p className={`mt-4 max-w-md text-lifeos-body leading-relaxed ${ui.mutedText}`}>
+                  A short recap from tasks, focus, money, and home.
+                </p>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="mt-5 w-fit"
+                  disabled={dailyReviewLoading}
+                  onClick={() => void generateDailyReview(false)}
+                  type="button"
+                >
+                  Run review
+                </Button>
+              </div>
+            </div>
           )}
         </div>
 
-        <div className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
-          <h2 className="text-lg font-semibold text-white">Quick actions</h2>
+        <div className={ds.surfaces.contentPanelCompact}>
+          <h2 className="text-lifeos-card-title font-semibold tracking-tight text-lifeos-fg">Shortcuts</h2>
           <div className="mt-3 grid gap-2.5">
             <Button
-              className={`${ui.primaryButton} w-full min-h-11 sm:w-fit`}
+              variant="primary"
+              size="md"
+              className="w-full sm:w-fit"
               onClick={onStartFocusFromQuickAction}
               type="button"
               disabled={startingFocus}
@@ -913,18 +901,22 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
               {startingFocus ? "Starting..." : "Start focus session"}
             </Button>
             <Button
-              className={`${ui.secondaryButton} w-full min-h-11 sm:w-fit`}
+              variant="secondary"
+              size="md"
+              className="w-full sm:w-fit"
               onClick={() => router.push("/work/tasks")}
               type="button"
             >
-              Open tasks board
+              Open tasks
             </Button>
             <Button
-              className={`${ui.secondaryButton} w-full min-h-11 sm:w-fit`}
+              variant="secondary"
+              size="md"
+              className="w-full sm:w-fit"
               onClick={() => router.push("/finance/dashboard")}
               type="button"
             >
-              Review finance summary
+              Open finances
             </Button>
           </div>
         </div>
@@ -943,184 +935,265 @@ export function OverviewDashboard({ tab }: { tab: DashboardTabId }) {
       ) : null}
 
       {tab === "overview" ? (
-      <>
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-4 md:p-5">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8F98]">Today at a glance</h2>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {kpis.map((kpi) => (
-            <Card key={kpi.label} className={`${ui.card} border-[#2A2F36] bg-[#0F1318] px-3 py-2.5`}>
-              <p className="text-xs text-[#8A8F98]">{kpi.label}</p>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-white">{kpi.value}</p>
-            </Card>
-          ))}
+      <div className="flex flex-col gap-ds-6">
+      <Surface variant="hero">
+        <div className={dashboard.heroStack}>
+          <PageTitle>Control Center</PageTitle>
+          <MutedText className={ds.typography.proseMax}>See what matters and what to do next.</MutedText>
         </div>
-      </section>
+      </Surface>
 
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Risk signals</h2>
-            <p className={`mt-1 text-sm ${ui.mutedText}`}>
-              Rule-based early warnings from the last 14 days (focus, home, spending). Not AI-generated.
-            </p>
-          </div>
-        </div>
-        {riskSignals.length === 0 ? (
-          <p className={`mt-4 rounded-xl border border-[#2A2F36] bg-[#0F1318] px-4 py-3 text-sm ${ui.mutedText}`}>
-            No elevated risks detected in this window.
-          </p>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {riskSignals.map((r) => (
-              <li
-                key={`${r.id}-${r.detectedAt}`}
-                className={`rounded-xl border border-[#2A2F36] border-l-4 px-4 py-3 ${riskSeverityShell(r.severity)}`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[#9aa3ad]">{r.category}</span>
-                  <span
-                    className={`rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                      r.severity === "high"
-                        ? "border-[#a04444]/80 bg-[#2a1616] text-[#ffb3b3]"
-                        : r.severity === "medium"
-                          ? "border-[#8a7349]/80 bg-[#221c12] text-[#f3d59e]"
-                          : "border-[#2A2F36] bg-[#141A22] text-[#c9d0d8]"
-                    }`}
-                  >
-                    {riskSeverityLabel(r.severity)}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm leading-relaxed text-[#E5E5E5]">{r.message}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-white">System Status</h2>
-            <p className={`mt-1 text-sm ${ui.mutedText}`}>Mind, home, and money at a glance.</p>
-          </div>
-        </div>
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-          {systemPillars.map((pillar) => {
-            const st = systemStatusToneStyles(pillar.tone);
+      <Surface variant="secondary">
+        <SectionHeader
+          title="Current state"
+          description="Focus, home, finances, and energy today."
+        />
+        <div className="mt-ds-7 grid grid-cols-2 gap-ds-3 lg:grid-cols-4">
+          {todayStateRows.map((row) => {
+            const st = systemStatusToneStyles(row.tone);
             return (
               <div
-                key={pillar.key}
-                className={`rounded-2xl border px-4 py-4 transition duration-300 hover:-translate-y-0.5 ${st.shell}`}
+                key={row.key}
+                className={`px-ds-4 py-ds-4 transition duration-200 hover:-translate-y-px ${st.shell}`}
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-ds-2">
+                  <span className="flex min-w-0 items-center gap-ds-2">
                     <span className={st.glow}>
-                      <SystemStatusIcon pillar={pillar.key} />
+                      <TodayStateIcon rowKey={row.key} />
                     </span>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A8F98]">{pillar.title}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-medium ${st.badge}`}>
-                    {pillar.statusLabel}
+                    <span className="truncate text-sm font-medium text-lifeos-fg-secondary">{row.title}</span>
                   </span>
+                  <span className={`shrink-0 ${st.badge}`}>{row.statusLabel}</span>
                 </div>
-                <p className={`mt-3 text-xl font-semibold tracking-tight ${st.glow}`}>{pillar.statusLabel}</p>
               </div>
             );
           })}
         </div>
-      </section>
+      </Surface>
 
-      <section className="rounded-2xl border border-[#2A2F36] bg-[#11151A] p-5 md:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold text-white">Recent activity</h2>
-          <Link href="/insights/activity" className={ui.secondaryButton}>
-            Open full log
-          </Link>
-        </div>
+      <Surface variant="primary">
+        <SectionHeader
+          title="What to do next"
+          description="One suggestion."
+          action={
+            <Link
+              href="/dashboard/recommendations"
+              className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}
+            >
+              View all
+            </Link>
+          }
+        />
 
-        <div className="mt-3 space-y-0">
-          {recentEvents.map((item) => (
-            <article key={item.id} className="flex gap-3 border-b border-[#2A2F36] py-4 last:border-b-0">
-              <span className="mt-2 size-2 shrink-0 rounded-full bg-[#C6A36B]" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium capitalize text-white">{item.type.replaceAll("_", " ")}</p>
-                <p className="mt-1 text-xs text-[#8A8F98]">{formatDateTimeFiNumeric(item.created_at)}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {eventDetails(item)
-                    .slice(0, 2)
-                    .map((detail) => (
-                    <span
-                      key={`${item.id}-${detail.label}`}
-                      className="rounded-lg border border-[#2A2F36] bg-[#171B21] px-2.5 py-1 text-xs text-[#8A8F98]"
-                    >
-                      <span className="text-[#E5E5E5]">{detail.label}:</span> {detail.value}
-                    </span>
-                    ))}
-                  {eventDetails(item).length > 2 && (
-                    <span className="rounded-lg border border-[#2A2F36] bg-[#171B21] px-2.5 py-1 text-xs text-[#8A8F98]">
-                      +{eventDetails(item).length - 2} more
-                    </span>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
-          {!recentEvents.length && (
-            <p className={`rounded-lg border border-[#2A2F36] bg-[#141A22]/50 px-3 py-2 text-sm ${ui.mutedText}`}>
-              No recent activity yet.
-            </p>
+        <div className="mt-ds-8">
+          {primaryNextAction ? (
+            <RecommendationActionCard
+              action={primaryNextAction}
+              busy={recActionBusy === primaryNextAction.id}
+              layout="featured"
+              mutedTextClass={ui.mutedText}
+              formatDateTimeFiNumeric={formatDateTimeFiNumeric}
+              nextActionCategoryLabel={nextActionCategoryLabel}
+              nextActionPriorityClass={nextActionPriorityClass}
+              onDismiss={() => void submitRecFeedback(primaryNextAction.id, "dismissed")}
+              onImplicitIgnore={() => void submitRecFeedback(primaryNextAction.id, "ignored")}
+              onPrimary={() => runRecommendationPrimaryAction(primaryNextAction)}
+            />
+          ) : (
+            <Surface variant="inset">
+              <p className="text-lifeos-section font-semibold text-lifeos-fg">You&apos;re in good shape</p>
+              <p className={`mt-ds-3 text-lifeos-body ${ui.mutedText}`}>
+                Nothing urgent. Check in later today.
+              </p>
+            </Surface>
           )}
         </div>
-      </section>
-      </>
+      </Surface>
+
+      <div className="grid grid-cols-1 gap-ds-6 lg:grid-cols-2 lg:gap-ds-8">
+        <Surface variant="secondary">
+          <SectionHeader
+            label="Today"
+            title="Your plan"
+            description="Up to five steps."
+            action={
+              <Link
+                href="/dashboard/daily-plan"
+                className={cn(buttonVariants({ variant: "secondary", size: "md" }), "inline-flex")}
+              >
+                Open list
+              </Link>
+            }
+          />
+
+          {overviewDailyPlanItems.length > 0 ? (
+            <ul className="mt-ds-6 space-y-ds-3">
+              {overviewDailyPlanItems.map((item) => (
+                <li key={item.id}>
+                  <label
+                    className={`flex min-h-[44px] cursor-pointer items-start gap-ds-3 rounded-ds-input px-ds-4 py-ds-3 transition-colors md:py-ds-4 ${
+                      item.completed
+                        ? "bg-lifeos-page/70 opacity-75 shadow-inner"
+                        : "bg-lifeos-muted/30 shadow-inner hover:bg-lifeos-hover/30"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={() => toggleDailyPlanItem(item.id)}
+                      className="mt-1 size-4 shrink-0 rounded border-lifeos-border bg-transparent accent-lifeos-accent"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={`block text-lifeos-body font-medium ${
+                          item.completed ? "text-lifeos-fg-muted line-through decoration-lifeos-border" : "text-lifeos-fg"
+                        }`}
+                      >
+                        {item.title}
+                      </span>
+                      <span className="mt-ds-2 text-lifeos-caption text-lifeos-fg-muted">
+                        {dailyPlanCategoryLabel(item.category)} · <span className="capitalize">{item.priority}</span> priority
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Surface variant="inset" className="mt-ds-6 flex gap-ds-4 sm:items-center">
+              <ListTodo className="size-5 shrink-0 text-lifeos-fg-muted" strokeWidth={1.75} aria-hidden />
+              <div>
+                <p className="font-semibold text-lifeos-card-title text-lifeos-fg">Your plan shows up here</p>
+                <p className={`mt-ds-2 text-lifeos-body ${ui.mutedText}`}>
+                  Add tasks, zones, or spending. We build this from what you log.
+                </p>
+              </div>
+            </Surface>
+          )}
+        </Surface>
+
+        <Surface variant="primary" className="bg-lifeos-domain-risk/20 shadow-inner">
+          <SectionHeader
+            title="Needs attention"
+            description="Medium and high items from the last two weeks."
+          />
+
+          {importantRiskSignals.length === 0 ? (
+            <Surface variant="inset" className="mt-ds-6">
+              <p className="font-semibold text-lifeos-card-title text-lifeos-fg">All clear for now</p>
+              <p className={`mt-ds-2 text-lifeos-body ${ui.mutedText}`}>
+                Nothing to flag yet. Keep logging tasks, focus, and money.
+              </p>
+            </Surface>
+          ) : (
+            <ul className="mt-ds-6 space-y-ds-3">
+              {importantRiskSignals.slice(0, 5).map((r) => (
+                <li key={`${r.id}-${r.detectedAt}`} className={`rounded-ds-input px-ds-4 py-ds-3 md:px-ds-5 md:py-ds-4 ${riskSeverityShell(r.severity)}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-ds-2">
+                    <span className="text-sm font-medium text-lifeos-fg-secondary">{r.category}</span>
+                    <span
+                      className={`text-lifeos-caption font-medium ${
+                        r.severity === "high" ? "text-lifeos-status-risk" : "text-lifeos-warning"
+                      }`}
+                    >
+                      {riskSeverityLabel(r.severity)}
+                    </span>
+                  </div>
+                  <p className="mt-ds-2 text-lifeos-body leading-snug text-lifeos-fg">{r.message}</p>
+                  <WhyLine text={r.explanation ?? ""} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {importantRiskSignals.length > 5 ? (
+            <p className={`mt-ds-4 text-lifeos-caption ${ui.mutedText}`}>
+              +{importantRiskSignals.length - 5} more in Insights.
+            </p>
+          ) : null}
+        </Surface>
+      </div>
+
+      <Surface variant="primary">
+        <SectionHeader
+          title="Today&apos;s review"
+          description="Short recap from your day. Same view under Suggestions."
+          action={
+            <Link
+              href="/dashboard/recommendations"
+              className={cn(buttonVariants({ variant: "ghost", size: "md" }), "inline-flex md:self-center")}
+            >
+              Open
+            </Link>
+          }
+        />
+
+        {dailyReviewError ? (
+          <p className="mt-ds-6 text-lifeos-body text-lifeos-danger">{dailyReviewError}</p>
+        ) : null}
+
+        {dailyReview?.from_storage && !dailyReviewError ? (
+          <p className={`mt-ds-6 text-lifeos-caption ${ui.mutedText}`}>Saved earlier today.</p>
+        ) : null}
+
+        {dailyReview?.fallback && !dailyReviewError ? (
+          <p className="mt-ds-6 text-lifeos-body text-lifeos-warning">Simple local version for now.</p>
+        ) : null}
+
+        {dailyReviewLoading && !dailyReview && (
+          <div className="mt-ds-6">
+            <PageSectionSkeleton />
+          </div>
+        )}
+
+        {dailyReview ? (
+          <Surface variant="inset" className="mt-ds-6">
+            <h3 className="text-lifeos-card-title font-semibold text-lifeos-accent">{dailyReview.title}</h3>
+            <p className={`mt-ds-4 text-lifeos-body leading-relaxed text-lifeos-fg`}>
+              {dailyReview.summary.length > 320 ? `${dailyReview.summary.slice(0, 320).trimEnd()}…` : dailyReview.summary}
+            </p>
+          </Surface>
+        ) : null}
+
+        {!dailyReview && !dailyReviewLoading && !dailyReviewError ? (
+          <Surface variant="inset" className="mt-ds-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+            <Sparkles className="size-10 shrink-0 text-lifeos-accent/25 motion-safe:animate-lifeos-soft-in sm:mt-0.5" strokeWidth={1.25} aria-hidden />
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-lifeos-section font-semibold text-lifeos-fg">Today&apos;s review</p>
+              <p className={`mt-3 max-w-md text-lifeos-body leading-relaxed ${ui.mutedText}`}>
+                What went well, what slowed you down, and what to watch. From what you already logged.
+              </p>
+              <Button
+                variant="primary"
+                size="lg"
+                className="mt-4 w-fit"
+                disabled={dailyReviewLoading}
+                onClick={() => void generateDailyReview(false)}
+                type="button"
+              >
+                Run review
+              </Button>
+            </div>
+          </Surface>
+        ) : null}
+      </Surface>
+
+      <Surface variant="secondary" className="bg-lifeos-muted/25 !px-5 !py-3.5 !shadow-inner md:!px-6 md:!py-3.5">
+        <div className="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <p className="min-w-0 flex-1 text-sm leading-snug text-lifeos-fg-muted md:max-w-xl md:text-lifeos-body">
+            Recent activity: tasks, focus, spending, home.
+          </p>
+          <Link
+            href="/insights/activity"
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "inline-flex shrink-0")}
+          >
+            Activity log
+          </Link>
+        </div>
+      </Surface>
+      </div>
       ) : null}
 
       </div>
-
-      {tab === "overview" && showDebugTools && (
-        <section className="rounded-2xl border border-dashed border-[#2A2F36] bg-[#11151A] p-4">
-          <details>
-            <summary className="cursor-pointer list-none select-none text-sm font-medium text-[#8A8F98]">
-              Dev tools: manual event
-            </summary>
-
-            <form onSubmit={onSubmit} className="mt-4 grid gap-3">
-              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                <div className="grid gap-2">
-                  <label className={`text-sm ${ui.mutedText}`}>Event type</label>
-                  <Select value={eventType} onValueChange={(value) => setEventType(value as EventType)}>
-                    <SelectTrigger className="h-10 w-full rounded-xl border-[#2A2F36] bg-transparent">
-                      <SelectValue placeholder="Choose event type" />
-                    </SelectTrigger>
-                    <SelectContent className="border-[#2A2F36] bg-[#11151A] text-[#E5E5E5]">
-                      {EVENT_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="self-end">
-                  <Button className={ui.primaryButton} type="submit">
-                    Add event
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <label className={`text-sm ${ui.mutedText}`}>Payload JSON</label>
-                <Textarea
-                  className="min-h-20 rounded-xl border-[#2A2F36] bg-transparent font-mono text-sm text-[#E5E5E5]"
-                  value={payloadText}
-                  onChange={(e) => setPayloadText(e.target.value)}
-                />
-              </div>
-            </form>
-          </details>
-        </section>
-      )}
     </div>
   );
 }

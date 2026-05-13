@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.crud import finance_totals_in_range, get_daily_summary, list_cleaning_zones
 from app.models import DailySnapshot, FocusSession, PomodoroSession
+from app.services.realtime import publish_app_update
 
 
 def day_bounds_utc(d: date) -> tuple[datetime, datetime]:
@@ -171,6 +172,7 @@ def generate_daily_snapshot(db: Session, target_date: date) -> DailySnapshot:
         existing.updated_at = now
         db.commit()
         db.refresh(existing)
+        publish_app_update("daily_snapshot_updated", snapshot_date=target_date.isoformat())
         return existing
 
     row = DailySnapshot(
@@ -188,10 +190,8 @@ def generate_daily_snapshot(db: Session, target_date: date) -> DailySnapshot:
     db.add(row)
     db.commit()
     db.refresh(row)
+    publish_app_update("daily_snapshot_updated", snapshot_date=target_date.isoformat())
     return row
-
-
-def get_daily_snapshot(db: Session, target_date: date) -> DailySnapshot | None:
     return db.execute(select(DailySnapshot).where(DailySnapshot.snapshot_date == target_date)).scalar_one_or_none()
 
 

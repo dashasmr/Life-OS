@@ -197,6 +197,15 @@ class BehaviorPatternRead(BaseModel):
     message: str
 
 
+class BehaviorPatternsPayload(BaseModel):
+    """Envelope for `/analytics/behavior-patterns` including sample-quality metadata."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    patterns: list[BehaviorPatternRead]
+    insufficient_history: bool = Field(False, serialization_alias="insufficientHistory")
+
+
 class RiskSignalRead(BaseModel):
     """Early warning derived from trends and thresholds (not LLM output)."""
 
@@ -204,6 +213,7 @@ class RiskSignalRead(BaseModel):
     severity: Literal["low", "medium", "high"]
     category: Literal["focus", "finance", "environment"]
     message: str
+    explanation: str
     detectedAt: str
 
 
@@ -272,3 +282,69 @@ class DailySnapshotRead(BaseModel):
     system_state: DailySnapshotSystemState
     created_at: datetime
     updated_at: datetime
+
+
+RecommendationOutcome = Literal["accepted", "ignored", "dismissed"]
+
+
+class RecommendationFeedbackCreate(BaseModel):
+    recommendation_id: str = Field(min_length=1, max_length=128)
+    outcome: RecommendationOutcome
+    """ISO-8601 timestamp from client (stored rows still use server `created_at`)."""
+    timestamp: datetime | None = None
+    """Local clock hour (0–23) when feedback applies — used for time-of-day adaptation."""
+    local_hour: int | None = Field(default=None, ge=0, le=23)
+
+
+class RecommendationFeedbackRead(BaseModel):
+    id: str
+    recommendation_id: str
+    outcome: str
+    local_hour: int | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RecommendationAdjustmentRead(BaseModel):
+    """Derived tuning for one recommendation id (merged timing + priority + frequency signals)."""
+
+    priority_weight: float = 1.0
+    confidence: float = 0.55
+    avoid_hours_local: list[int] = Field(default_factory=list)
+    prefer_hours_local: list[int] = Field(default_factory=list)
+    defer_show_until_hour_local: int | None = None
+    min_minutes_between_suggestions: int = 0
+
+
+class AdaptiveContextRead(BaseModel):
+    """Aggregated adaptive tuning consumed by the recommendation engine on the client."""
+
+    adjustments: dict[str, RecommendationAdjustmentRead]
+
+
+DetectedHabitCategory = Literal["focus", "cleaning", "finance", "productivity"]
+
+HabitSupportActionType = Literal["navigate", "mutation", "plan_item"]
+
+
+class HabitSupportActionRead(BaseModel):
+    """One actionable step derived from a detected habit."""
+
+    id: str
+    habitId: str
+    label: str
+    type: HabitSupportActionType
+    target: str | None = None
+    payload: dict[str, Any] | None = None
+
+
+class DetectedHabitRead(BaseModel):
+    """Auto-detected behavioral routine from historical events (not user-declared)."""
+
+    id: str
+    category: DetectedHabitCategory
+    confidence: float = Field(ge=0.0, le=1.0)
+    frequency: str
+    message: str
+    suggestedActions: list[HabitSupportActionRead] = Field(default_factory=list)

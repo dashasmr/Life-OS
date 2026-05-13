@@ -1,5 +1,19 @@
-/** Default matches README / uvicorn --port 8765 (port 8000 often triggers WinError 10013 on Windows). */
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8765";
+/**
+ * Base URL for API calls.
+ * - Browser (no env): uses same-origin `/life-os-api` → proxied by Next to uvicorn (see `next.config.mjs`).
+ * - Server / SSR: uses `http://127.0.0.1:8765` directly so Node can reach the backend without going through Next.
+ * - Override anytime: `NEXT_PUBLIC_API_URL` in `.env.local` (e.g. production API URL).
+ */
+function resolveApiBaseUrl(): string {
+  const env = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (env) return env;
+  if (typeof window !== "undefined") {
+    return "/life-os-api";
+  }
+  return "http://127.0.0.1:8765";
+}
+
+export const API_URL = resolveApiBaseUrl();
 
 /**
  * `fetch` throws TypeError/Error with "Failed to fetch" when the server is down, URL is wrong, or CORS blocks the response.
@@ -20,10 +34,31 @@ export function describeFetchFailure(reason: unknown): string {
     return (
       `Cannot reach the Life OS API at ${API_URL}. ` +
       `Start the backend (from the backend folder): python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8765. ` +
-      `If the UI uses a different API host, set NEXT_PUBLIC_API_URL in frontend/.env.local and restart Next.js.`
+      `The UI uses a Next.js proxy (/life-os-api → port 8765) unless NEXT_PUBLIC_API_URL is set. ` +
+      `Restart Next.js after changing env.`
     );
   }
   return raw;
+}
+
+/** Non-OK fetch: include HTTP status and truncated body (often FastAPI `detail` or DB error text). */
+export async function errorFromResponse(response: Response, label: string): Promise<Error> {
+  let detail = "";
+  try {
+    const text = await response.text();
+    detail = text ? `: ${text.slice(0, 320)}` : "";
+  } catch {
+    /* ignore body read errors */
+  }
+  let msg = `${label} (${response.status}${detail})`;
+  if (
+    /OperationalError|connection refused|could not connect|Connection refused/i.test(msg) ||
+    (response.status >= 500 && /postgres|psycopg|5432|5433/i.test(msg))
+  ) {
+    msg +=
+      " — Backend database unreachable. Start Postgres (e.g. `docker compose up -d db` from the repo root) or fix DATABASE_URL.";
+  }
+  return new Error(msg);
 }
 
 export type EventType =
@@ -176,3 +211,90 @@ export type PomodoroSession = {
   started_at: string;
   ended_at: string | null;
 };
+
+/** Persisted feedback for adaptive recommendations (POST /recommendations/feedback). */
+export type RecommendationOutcome = "accepted" | "ignored" | "dismissed";
+
+export type RecommendationFeedback = {
+  recommendationId: string;
+  outcome: RecommendationOutcome;
+  timestamp: string;
+};
+
+/** GET /recommendations/adaptive-context — tuning merged from timing / priority / frequency modules. */
+export type RecommendationAdjustment = {
+  priority_weight: number;
+  confidence: number;
+  avoid_hours_local: number[];
+  prefer_hours_local: number[];
+  defer_show_until_hour_local: number | null;
+  min_minutes_between_suggestions: number;
+};
+
+export type AdaptiveContext = {
+  adjustments: Record<string, RecommendationAdjustment>;
+};
+
+export async function fetchAdaptiveContext(baseUrl: string = API_URL): Promise<AdaptiveContext> {
+  const res = await fetch(`${baseUrl}/recommendations/adaptive-context`, { cache: "no-store" });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `Adaptive context failed (${res.status})`);
+  }
+  return res.json() as Promise<AdaptiveContext>;
+}
+
+export type DetectedHabitCategory = "focus" | "cleaning" | "finance" | "productivity";
+
+export type HabitSupportActionType = "navigate" | "mutation" | "plan_item";
+
+export type HabitSupportAction = {
+  id: string;
+  habitId: string;
+  label: string;
+  type: HabitSupportActionType;
+  target?: string;
+  payload?: Record<string, unknown>;
+};
+
+export type DetectedHabit = {
+  id: string;
+  category: DetectedHabitCategory;
+  confidence: number;
+  frequency: string;
+  message: string;
+  suggestedActions: HabitSupportAction[];
+};
+
+export async function fetchDetectedHabits(days = 45, baseUrl: string = API_URL): Promise<DetectedHabit[]> {
+  const res = await fetch(`${baseUrl}/habits/detected?days=${days}`, { cache: "no-store" });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `Detected habits failed (${res.status})`);
+  }
+  return res.json() as Promise<DetectedHabit[]>;
+}
+
+export async function postRecommendationFeedback(
+  payload: {
+    recommendation_id: string;
+    outcome: RecommendationOutcome;
+    local_hour?: number | null;
+  },
+  baseUrl: string = API_URL
+): Promise<void> {
+  const res = await fetch(`${baseUrl}/recommendations/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recommendation_id: payload.recommendation_id,
+      outcome: payload.outcome,
+      local_hour: payload.local_hour ?? null,
+      timestamp: new Date().toISOString()
+    })
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `Recommendation feedback failed (${res.status})`);
+  }
+}
